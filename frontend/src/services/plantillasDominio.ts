@@ -582,6 +582,331 @@ export const PLANTILLAS_DISPONIBLES: PlantillaDominio[] = [
         }
       ]
     }
+  },
+  {
+    id: 'inventario',
+    nombre: 'Inventario & Almacén',
+    icono: '📦',
+    categoria: 'Logística & Operaciones',
+    descripcion: 'Control de existencias, bodegas, movimientos de entrada/salida y proveedores.',
+    color: '#059669',
+    classesCount: 4,
+    relationsCount: 3,
+    diagrama: {
+      classes: [
+        {
+          id: 'cls-almacen',
+          name: 'Almacen',
+          stereotype: 'Entity',
+          position: { x: 80, y: 140 },
+          attributes: [
+            { id: 'attr-alm-1', name: 'id', type: 'Long', visibility: '-', isPrimaryKey: true },
+            { id: 'attr-alm-2', name: 'codigo', type: 'String', visibility: '-' },
+            { id: 'attr-alm-3', name: 'nombre', type: 'String', visibility: '-' },
+            { id: 'attr-alm-4', name: 'ubicacion', type: 'String', visibility: '-' },
+            { id: 'attr-alm-5', name: 'capacidadMaxima', type: 'Integer', visibility: '-' }
+          ],
+          methods: [
+            { id: 'm-alm-1', name: 'consultarCapacidadDisponible', returnType: 'Integer', visibility: '+' }
+          ]
+        },
+        {
+          id: 'cls-prod-inv',
+          name: 'Producto',
+          stereotype: 'Entity',
+          position: { x: 460, y: 140 },
+          attributes: [
+            { id: 'attr-pinv-1', name: 'id', type: 'Long', visibility: '-', isPrimaryKey: true },
+            { id: 'attr-pinv-2', name: 'sku', type: 'String', visibility: '-' },
+            { id: 'attr-pinv-3', name: 'nombre', type: 'String', visibility: '-' },
+            { id: 'attr-pinv-4', name: 'stockActual', type: 'Integer', visibility: '-' },
+            { id: 'attr-pinv-5', name: 'stockMinimo', type: 'Integer', visibility: '-' },
+            { id: 'attr-pinv-6', name: 'precioUnitario', type: 'Double', visibility: '-' }
+          ],
+          methods: [
+            { id: 'm-pinv-1', name: 'esBajoStock', returnType: 'Boolean', visibility: '+' },
+            { id: 'm-pinv-2', name: 'recalcularExistencias', returnType: 'void', visibility: '+' }
+          ]
+        },
+        {
+          id: 'cls-movimiento',
+          name: 'MovimientoInventario',
+          stereotype: 'Entity',
+          position: { x: 840, y: 140 },
+          attributes: [
+            { id: 'attr-mov-1', name: 'id', type: 'Long', visibility: '-', isPrimaryKey: true },
+            { id: 'attr-mov-2', name: 'tipo', type: 'String', visibility: '-' },
+            { id: 'attr-mov-3', name: 'cantidad', type: 'Integer', visibility: '-' },
+            { id: 'attr-mov-4', name: 'fechaMovimiento', type: 'LocalDateTime', visibility: '-' },
+            { id: 'attr-mov-5', name: 'observaciones', type: 'String', visibility: '-' }
+          ],
+          methods: [
+            { id: 'm-mov-1', name: 'aplicarKardex', returnType: 'Boolean', visibility: '+' }
+          ]
+        },
+        {
+          id: 'cls-proveedor',
+          name: 'Proveedor',
+          stereotype: 'Entity',
+          position: { x: 460, y: 460 },
+          attributes: [
+            { id: 'attr-prov-1', name: 'id', type: 'Long', visibility: '-', isPrimaryKey: true },
+            { id: 'attr-prov-2', name: 'razonSocial', type: 'String', visibility: '-' },
+            { id: 'attr-prov-3', name: 'ruc', type: 'String', visibility: '-' },
+            { id: 'attr-prov-4', name: 'telefono', type: 'String', visibility: '-' },
+            { id: 'attr-prov-5', name: 'correo', type: 'String', visibility: '-' }
+          ],
+          methods: [
+            { id: 'm-prov-1', name: 'validarRuc', returnType: 'Boolean', visibility: '+' }
+          ]
+        }
+      ],
+      relations: [
+        {
+          id: 'rel-inv-1',
+          sourceClassId: 'cls-almacen',
+          targetClassId: 'cls-movimiento',
+          type: 'ASSOCIATION_1_N',
+          sourceMultiplicity: '1',
+          targetMultiplicity: '*',
+          label: 'registra'
+        },
+        {
+          id: 'rel-inv-2',
+          sourceClassId: 'cls-prod-inv',
+          targetClassId: 'cls-movimiento',
+          type: 'ASSOCIATION_1_N',
+          sourceMultiplicity: '1',
+          targetMultiplicity: '*',
+          label: 'involucra'
+        },
+        {
+          id: 'rel-inv-3',
+          sourceClassId: 'cls-proveedor',
+          targetClassId: 'cls-prod-inv',
+          type: 'ASSOCIATION_1_N',
+          sourceMultiplicity: '1',
+          targetMultiplicity: '*',
+          label: 'suministra'
+        }
+      ]
+    }
+  },
+  {
+    id: 'biblioteca',
+    nombre: 'Biblioteca & Préstamos',
+    icono: '📚',
+    categoria: 'Educación & Cultura',
+    descripcion: 'Catálogo de obras literarias, autores, lectores/socios y control de préstamos con multas.',
+    color: '#8b5cf6',
+    classesCount: 4,
+    relationsCount: 3,
+    diagrama: {
+      classes: [
+        {
+          id: 'cls-libro',
+          name: 'Libro',
+          stereotype: 'Entity',
+          position: { x: 80, y: 140 },
+          attributes: [
+            { id: 'attr-lib-1', name: 'id', type: 'Long', visibility: '-', isPrimaryKey: true },
+            { id: 'attr-lib-2', name: 'isbn', type: 'String', visibility: '-' },
+            { id: 'attr-lib-3', name: 'titulo', type: 'String', visibility: '-' },
+            { id: 'attr-lib-4', name: 'editorial', type: 'String', visibility: '-' },
+            { id: 'attr-lib-5', name: 'ejemplaresDisponibles', type: 'Integer', visibility: '-' }
+          ],
+          methods: [
+            { id: 'm-lib-1', name: 'prestarEjemplar', returnType: 'Boolean', visibility: '+' },
+            { id: 'm-lib-2', name: 'devolverEjemplar', returnType: 'void', visibility: '+' }
+          ]
+        },
+        {
+          id: 'cls-autor',
+          name: 'Autor',
+          stereotype: 'Entity',
+          position: { x: 80, y: 460 },
+          attributes: [
+            { id: 'attr-aut-1', name: 'id', type: 'Long', visibility: '-', isPrimaryKey: true },
+            { id: 'attr-aut-2', name: 'nombreCompleto', type: 'String', visibility: '-' },
+            { id: 'attr-aut-3', name: 'nacionalidad', type: 'String', visibility: '-' },
+            { id: 'attr-aut-4', name: 'biografia', type: 'String', visibility: '-' }
+          ],
+          methods: [
+            { id: 'm-aut-1', name: 'obtenerBibliografia', returnType: 'List<String>', visibility: '+' }
+          ]
+        },
+        {
+          id: 'cls-socio',
+          name: 'Socio',
+          stereotype: 'Entity',
+          position: { x: 480, y: 140 },
+          attributes: [
+            { id: 'attr-soc-1', name: 'id', type: 'Long', visibility: '-', isPrimaryKey: true },
+            { id: 'attr-soc-2', name: 'numeroCarnet', type: 'String', visibility: '-' },
+            { id: 'attr-soc-3', name: 'nombre', type: 'String', visibility: '-' },
+            { id: 'attr-soc-4', name: 'correo', type: 'String', visibility: '-' },
+            { id: 'attr-soc-5', name: 'estado', type: 'String', visibility: '-' }
+          ],
+          methods: [
+            { id: 'm-soc-1', name: 'puedeSolicitarPrestamo', returnType: 'Boolean', visibility: '+' }
+          ]
+        },
+        {
+          id: 'cls-prestamo',
+          name: 'Prestamo',
+          stereotype: 'Entity',
+          position: { x: 880, y: 140 },
+          attributes: [
+            { id: 'attr-pres-1', name: 'id', type: 'Long', visibility: '-', isPrimaryKey: true },
+            { id: 'attr-pres-2', name: 'fechaSalida', type: 'LocalDate', visibility: '-' },
+            { id: 'attr-pres-3', name: 'fechaLimiteDevolucion', type: 'LocalDate', visibility: '-' },
+            { id: 'attr-pres-4', name: 'fechaEntregaReal', type: 'LocalDate', visibility: '-' },
+            { id: 'attr-pres-5', name: 'multaGenerada', type: 'Double', visibility: '-' }
+          ],
+          methods: [
+            { id: 'm-pres-1', name: 'calcularDiasRetraso', returnType: 'Integer', visibility: '+' },
+            { id: 'm-pres-2', name: 'liquidarMulta', returnType: 'void', visibility: '+' }
+          ]
+        }
+      ],
+      relations: [
+        {
+          id: 'rel-bib-1',
+          sourceClassId: 'cls-autor',
+          targetClassId: 'cls-libro',
+          type: 'ASSOCIATION_1_N',
+          sourceMultiplicity: '1',
+          targetMultiplicity: '*',
+          label: 'escribe'
+        },
+        {
+          id: 'rel-bib-2',
+          sourceClassId: 'cls-socio',
+          targetClassId: 'cls-prestamo',
+          type: 'ASSOCIATION_1_N',
+          sourceMultiplicity: '1',
+          targetMultiplicity: '*',
+          label: 'solicita'
+        },
+        {
+          id: 'rel-bib-3',
+          sourceClassId: 'cls-libro',
+          targetClassId: 'cls-prestamo',
+          type: 'ASSOCIATION_1_N',
+          sourceMultiplicity: '1',
+          targetMultiplicity: '*',
+          label: 'se presta en'
+        }
+      ]
+    }
+  },
+  {
+    id: 'hotel',
+    nombre: 'Hotel & Reservaciones',
+    icono: '🏨',
+    categoria: 'Turismo & Hospitalidad',
+    descripcion: 'Huéspedes, habitaciones por categoría, reservas con fechas de check-in/out y liquidación.',
+    color: '#f59e0b',
+    classesCount: 4,
+    relationsCount: 3,
+    diagrama: {
+      classes: [
+        {
+          id: 'cls-habitacion',
+          name: 'Habitacion',
+          stereotype: 'Entity',
+          position: { x: 80, y: 140 },
+          attributes: [
+            { id: 'attr-hab-1', name: 'id', type: 'Long', visibility: '-', isPrimaryKey: true },
+            { id: 'attr-hab-2', name: 'numero', type: 'String', visibility: '-' },
+            { id: 'attr-hab-3', name: 'tipo', type: 'String', visibility: '-' },
+            { id: 'attr-hab-4', name: 'precioPorNoche', type: 'Double', visibility: '-' },
+            { id: 'attr-hab-5', name: 'estado', type: 'String', visibility: '-' }
+          ],
+          methods: [
+            { id: 'm-hab-1', name: 'verificarDisponibilidad', returnType: 'Boolean', visibility: '+' }
+          ]
+        },
+        {
+          id: 'cls-huesped',
+          name: 'Huesped',
+          stereotype: 'Entity',
+          position: { x: 480, y: 140 },
+          attributes: [
+            { id: 'attr-hue-1', name: 'id', type: 'Long', visibility: '-', isPrimaryKey: true },
+            { id: 'attr-hue-2', name: 'dniPasaporte', type: 'String', visibility: '-' },
+            { id: 'attr-hue-3', name: 'nombreCompleto', type: 'String', visibility: '-' },
+            { id: 'attr-hue-4', name: 'telefono', type: 'String', visibility: '-' },
+            { id: 'attr-hue-5', name: 'correo', type: 'String', visibility: '-' }
+          ],
+          methods: [
+            { id: 'm-hue-1', name: 'registrarHistorial', returnType: 'void', visibility: '+' }
+          ]
+        },
+        {
+          id: 'cls-reserva',
+          name: 'Reserva',
+          stereotype: 'Entity',
+          position: { x: 880, y: 140 },
+          attributes: [
+            { id: 'attr-res-1', name: 'id', type: 'Long', visibility: '-', isPrimaryKey: true },
+            { id: 'attr-res-2', name: 'codigoReserva', type: 'String', visibility: '-' },
+            { id: 'attr-res-3', name: 'fechaCheckIn', type: 'LocalDate', visibility: '-' },
+            { id: 'attr-res-4', name: 'fechaCheckOut', type: 'LocalDate', visibility: '-' },
+            { id: 'attr-res-5', name: 'totalEstadia', type: 'Double', visibility: '-' },
+            { id: 'attr-res-6', name: 'estado', type: 'String', visibility: '-' }
+          ],
+          methods: [
+            { id: 'm-res-1', name: 'calcularTotalNoches', returnType: 'Double', visibility: '+' },
+            { id: 'm-res-2', name: 'hacerCheckIn', returnType: 'void', visibility: '+' }
+          ]
+        },
+        {
+          id: 'cls-pago-hotel',
+          name: 'PagoHotel',
+          stereotype: 'Entity',
+          position: { x: 880, y: 460 },
+          attributes: [
+            { id: 'attr-pagh-1', name: 'id', type: 'Long', visibility: '-', isPrimaryKey: true },
+            { id: 'attr-pagh-2', name: 'monto', type: 'Double', visibility: '-' },
+            { id: 'attr-pagh-3', name: 'medioPago', type: 'String', visibility: '-' },
+            { id: 'attr-pagh-4', name: 'fechaPago', type: 'LocalDateTime', visibility: '-' }
+          ],
+          methods: [
+            { id: 'm-pagh-1', name: 'emitirRecibo', returnType: 'String', visibility: '+' }
+          ]
+        }
+      ],
+      relations: [
+        {
+          id: 'rel-hot-1',
+          sourceClassId: 'cls-huesped',
+          targetClassId: 'cls-reserva',
+          type: 'ASSOCIATION_1_N',
+          sourceMultiplicity: '1',
+          targetMultiplicity: '*',
+          label: 'reserva'
+        },
+        {
+          id: 'rel-hot-2',
+          sourceClassId: 'cls-habitacion',
+          targetClassId: 'cls-reserva',
+          type: 'ASSOCIATION_1_N',
+          sourceMultiplicity: '1',
+          targetMultiplicity: '*',
+          label: 'se asigna en'
+        },
+        {
+          id: 'rel-hot-3',
+          sourceClassId: 'cls-reserva',
+          targetClassId: 'cls-pago-hotel',
+          type: 'ASSOCIATION_1_1',
+          sourceMultiplicity: '1',
+          targetMultiplicity: '1',
+          label: 'se liquida con'
+        }
+      ]
+    }
   }
 ];
 

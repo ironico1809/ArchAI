@@ -2,13 +2,24 @@ import { ClaseUml, AtributoUml, RelacionUml } from '../types/uml';
 
 export interface ParseResult {
   success: boolean;
-  action: 'CREATE_CLASS' | 'ADD_ATTRIBUTE' | 'CREATE_RELATION' | 'VALIDATE_MODEL' | 'SUMMARY_MODEL' | 'GENERATE_DIAGRAM' | 'OPEN_WHITEBOARD' | 'OPEN_CODE_DOCK' | 'UNKNOWN';
+  action: 'CREATE_CLASS' 
+    | 'ADD_ATTRIBUTE' 
+    | 'CREATE_RELATION' 
+    | 'VALIDATE_MODEL' 
+    | 'SUMMARY_MODEL' 
+    | 'GENERATE_DIAGRAM' 
+    | 'OPEN_WHITEBOARD' 
+    | 'OPEN_CODE_DOCK'
+    | 'GENERATE_DOMAIN'
+    | 'AUTO_FIX_MODEL'
+    | 'UNKNOWN';
   reasoning: string;
   createdClass?: ClaseUml;
   targetClassName?: string;
   newAttribute?: AtributoUml;
   newRelation?: RelacionUml;
   rawPrompt?: string;
+  domainId?: string;
   message: string;
 }
 
@@ -16,12 +27,12 @@ export interface ParseResult {
 export function normalizeType(rawType: string): AtributoUml['type'] {
   const t = rawType.toLowerCase().trim();
   if (t.includes('long') || t.includes('id') || t.includes('identificador') || t.includes('bigint')) return 'Long';
-  if (t.includes('string') || t.includes('texto') || t.includes('cadena') || t.includes('nombre') || t.includes('descripcion') || t.includes('correo') || t.includes('email') || t.includes('telefono') || t.includes('direccion') || t.includes('ciudad') || t.includes('pais') || t.includes('titulo') || t.includes('codigo')) return 'String';
-  if (t.includes('int') || t.includes('integer') || t.includes('entero') || t.includes('edad') || t.includes('numero') || t.includes('cantidad') || t.includes('stock') || t.includes('contador') || t.includes('anio') || t.includes('mes')) return 'Integer';
-  if (t.includes('double') || t.includes('float') || t.includes('decimal') || t.includes('monto') || t.includes('precio') || t.includes('total') || t.includes('saldo') || t.includes('costo') || t.includes('tarifa') || t.includes('sueldo')) return 'Double';
-  if (t.includes('bool') || t.includes('boolean') || t.includes('booleano') || t.includes('activo') || t.includes('estado') || t.includes('habilitado') || t.includes('pagado')) return 'Boolean';
+  if (t.includes('string') || t.includes('texto') || t.includes('cadena') || t.includes('nombre') || t.includes('descripcion') || t.includes('correo') || t.includes('email') || t.includes('telefono') || t.includes('direccion') || t.includes('ciudad') || t.includes('pais') || t.includes('titulo') || t.includes('codigo') || t.includes('placa') || t.includes('sku')) return 'String';
+  if (t.includes('int') || t.includes('integer') || t.includes('entero') || t.includes('edad') || t.includes('numero') || t.includes('cantidad') || t.includes('stock') || t.includes('contador') || t.includes('anio') || t.includes('año') || t.includes('mes') || t.includes('dia')) return 'Integer';
+  if (t.includes('double') || t.includes('float') || t.includes('decimal') || t.includes('monto') || t.includes('precio') || t.includes('total') || t.includes('saldo') || t.includes('costo') || t.includes('tarifa') || t.includes('sueldo') || t.includes('iva') || t.includes('subtotal')) return 'Double';
+  if (t.includes('bool') || t.includes('boolean') || t.includes('booleano') || t.includes('activo') || t.includes('estado') || t.includes('habilitado') || t.includes('pagado') || t.includes('disponible')) return 'Boolean';
   if (t.includes('datetime') || t.includes('timestamp') || t.includes('hora') || t.includes('tiempo')) return 'LocalDateTime';
-  if (t.includes('date') || t.includes('fecha') || t.includes('nacimiento')) return 'LocalDate';
+  if (t.includes('date') || t.includes('fecha') || t.includes('nacimiento') || t.includes('emision') || t.includes('creacion')) return 'LocalDate';
   return 'String';
 }
 
@@ -31,24 +42,141 @@ export function capitalize(s: string): string {
 }
 
 /**
+ * Genera atributos por defecto inteligentes para una entidad según su nombre si no se especificaron.
+ */
+function generarAtributosPorDefecto(className: string): AtributoUml[] {
+  const lower = className.toLowerCase();
+  const idAttr: AtributoUml = {
+    id: `attr-${Date.now()}-id`,
+    name: 'id',
+    type: 'Long',
+    visibility: '-',
+    isPrimaryKey: true,
+    isNullable: false
+  };
+
+  if (lower.includes('factura') || lower.includes('pedido') || lower.includes('venta') || lower.includes('orden')) {
+    return [
+      idAttr,
+      { id: `attr-${Date.now()}-1`, name: 'numero', type: 'String', visibility: '-', isPrimaryKey: false, isNullable: false },
+      { id: `attr-${Date.now()}-2`, name: 'fecha', type: 'LocalDate', visibility: '-', isPrimaryKey: false, isNullable: false },
+      { id: `attr-${Date.now()}-3`, name: 'total', type: 'Double', visibility: '-', isPrimaryKey: false, isNullable: false },
+      { id: `attr-${Date.now()}-4`, name: 'estado', type: 'String', visibility: '-', isPrimaryKey: false, isNullable: false }
+    ];
+  }
+
+  if (lower.includes('cliente') || lower.includes('usuario') || lower.includes('persona') || lower.includes('empleado') || lower.includes('paciente') || lower.includes('alumno') || lower.includes('estudiante')) {
+    return [
+      idAttr,
+      { id: `attr-${Date.now()}-1`, name: 'nombre', type: 'String', visibility: '-', isPrimaryKey: false, isNullable: false },
+      { id: `attr-${Date.now()}-2`, name: 'correo', type: 'String', visibility: '-', isPrimaryKey: false, isNullable: false },
+      { id: `attr-${Date.now()}-3`, name: 'telefono', type: 'String', visibility: '-', isPrimaryKey: false, isNullable: false },
+      { id: `attr-${Date.now()}-4`, name: 'activo', type: 'Boolean', visibility: '-', isPrimaryKey: false, isNullable: false }
+    ];
+  }
+
+  if (lower.includes('producto') || lower.includes('articulo') || lower.includes('item') || lower.includes('repuesto')) {
+    return [
+      idAttr,
+      { id: `attr-${Date.now()}-1`, name: 'codigo', type: 'String', visibility: '-', isPrimaryKey: false, isNullable: false },
+      { id: `attr-${Date.now()}-2`, name: 'nombre', type: 'String', visibility: '-', isPrimaryKey: false, isNullable: false },
+      { id: `attr-${Date.now()}-3`, name: 'precio', type: 'Double', visibility: '-', isPrimaryKey: false, isNullable: false },
+      { id: `attr-${Date.now()}-4`, name: 'stock', type: 'Integer', visibility: '-', isPrimaryKey: false, isNullable: false }
+    ];
+  }
+
+  return [
+    idAttr,
+    { id: `attr-${Date.now()}-1`, name: 'nombre', type: 'String', visibility: '-', isPrimaryKey: false, isNullable: false },
+    { id: `attr-${Date.now()}-2`, name: 'descripcion', type: 'String', visibility: '-', isPrimaryKey: false, isNullable: false },
+    { id: `attr-${Date.now()}-3`, name: 'activo', type: 'Boolean', visibility: '-', isPrimaryKey: false, isNullable: false }
+  ];
+}
+
+/**
+ * Genera métodos de negocio recomendados para una clase recién creada.
+ */
+function generarMetodosPorDefecto(className: string): ClaseUml['methods'] {
+  const lower = className.toLowerCase();
+  const idBase = `m-${Date.now()}`;
+
+  if (lower.includes('factura') || lower.includes('pedido') || lower.includes('venta')) {
+    return [
+      { id: `${idBase}-1`, name: 'calcularTotal', returnType: 'Double', visibility: '+', parameters: '' },
+      { id: `${idBase}-2`, name: 'confirmar', returnType: 'Boolean', visibility: '+', parameters: '' }
+    ];
+  }
+
+  if (lower.includes('producto') || lower.includes('articulo')) {
+    return [
+      { id: `${idBase}-1`, name: 'actualizarStock', returnType: 'Boolean', visibility: '+', parameters: 'Integer cantidad' },
+      { id: `${idBase}-2`, name: 'esDisponible', returnType: 'Boolean', visibility: '+', parameters: '' }
+    ];
+  }
+
+  return [
+    { id: `${idBase}-1`, name: `validar${className}`, returnType: 'Boolean', visibility: '+', parameters: '' },
+    { id: `${idBase}-2`, name: `obtener${className}Info`, returnType: 'String', visibility: '+', parameters: '' }
+  ];
+}
+
+/**
  * Analizador léxico y semántico de comandos de voz y texto en lenguaje natural para UML.
- * Funciona de forma 100% offline en el navegador sin dependencias externas.
+ * Funciona de forma 100% offline en el navegador sin dependencias externas y detecta
+ * automáticamente intenciones de auditoría, corrección, generación de dominios,
+ * clases, atributos y relaciones.
  */
 export function parseNaturalLanguageCommand(text: string, existingClasses: ClaseUml[]): ParseResult {
   const clean = text.trim();
   const lower = clean.toLowerCase();
 
-  // 0. Meta-comandos de voz directos (Acciones de la aplicación)
-  if (lower.includes('validar') || lower.includes('auditar') || lower.includes('normalizar') || lower.includes('3fn') || lower.includes('revisar modelo')) {
+  // 0. Auto-reparación / Corrección inteligente
+  if (
+    lower.includes('corregir') || 
+    lower.includes('arreglar') || 
+    lower.includes('reparar') || 
+    lower.includes('solucionar') || 
+    lower.includes('autocorregir') || 
+    lower.includes('auto reparar') ||
+    lower.includes('auto-reparar') ||
+    lower.includes('completar pk') ||
+    lower.includes('agregar pk') ||
+    lower.includes('asignar pk')
+  ) {
     return {
       success: true,
-      action: 'VALIDATE_MODEL',
-      reasoning: 'Comando de auditoría del modelo UML y normalización 3FN detectado.',
-      message: 'Iniciando validación arquitectónica del modelo (CU-08)...'
+      action: 'AUTO_FIX_MODEL',
+      reasoning: 'Comando de auto-reparación arquitectónica detectado.',
+      message: 'Iniciando corrección automática con IA (PKs y métodos de dominio)...'
     };
   }
 
-  if (lower.includes('resumen') || lower.includes('explicar modelo') || lower.includes('describir diagrama')) {
+  // 1. Auditoría arquitectónica / Madurez / 3FN
+  if (
+    lower.includes('validar') || 
+    lower.includes('auditar') || 
+    lower.includes('auditoria') || 
+    lower.includes('auditoría') || 
+    lower.includes('normalizar') || 
+    lower.includes('3fn') || 
+    lower.includes('revisar modelo') || 
+    lower.includes('salud') || 
+    lower.includes('madurez') || 
+    lower.includes('cerebro') || 
+    lower.includes('diagnostico') || 
+    lower.includes('diagnóstico') || 
+    lower.includes('analizar')
+  ) {
+    return {
+      success: true,
+      action: 'VALIDATE_MODEL',
+      reasoning: 'Comando de auditoría del modelo UML y cerebro de código detectado.',
+      message: 'Ejecutando auditoría arquitectónica del proyecto...'
+    };
+  }
+
+  // 2. Resumen conceptual
+  if (lower.includes('resumen') || lower.includes('explicar modelo') || lower.includes('describir diagrama') || lower.includes('que hace el modelo')) {
     return {
       success: true,
       action: 'SUMMARY_MODEL',
@@ -57,7 +185,8 @@ export function parseNaturalLanguageCommand(text: string, existingClasses: Clase
     };
   }
 
-  if (lower.includes('escanear pizarra') || lower.includes('abrir pizarra') || lower.includes('foto pizarra') || lower.includes('camara pizarra')) {
+  // 3. UI Actions (Pizarra y Código)
+  if (lower.includes('escanear pizarra') || lower.includes('abrir pizarra') || lower.includes('foto pizarra') || lower.includes('camara pizarra') || lower.includes('pizarra')) {
     return {
       success: true,
       action: 'OPEN_WHITEBOARD',
@@ -66,7 +195,7 @@ export function parseNaturalLanguageCommand(text: string, existingClasses: Clase
     };
   }
 
-  if (lower.includes('generar codigo') || lower.includes('ver codigo') || lower.includes('spring boot') || lower.includes('descargar zip')) {
+  if (lower.includes('generar codigo') || lower.includes('ver codigo') || lower.includes('spring boot') || lower.includes('descargar zip') || lower.includes('codigo fuente')) {
     return {
       success: true,
       action: 'OPEN_CODE_DOCK',
@@ -75,6 +204,76 @@ export function parseNaturalLanguageCommand(text: string, existingClasses: Clase
     };
   }
 
+  // 4. Instanciación automática de Dominios de Negocio (Plantillas Completas)
+  const esPeticionDominio = lower.includes('sistema') || lower.includes('dominio') || lower.includes('plantilla') || lower.includes('modulo') || lower.includes('módulo') || lower.includes('modelo de') || lower.includes('crear ecommerce') || lower.includes('crear hospital') || lower.includes('crear clinica') || lower.includes('crear universidad') || lower.includes('crear inventario') || lower.includes('crear biblioteca') || lower.includes('crear hotel');
+
+  if (esPeticionDominio || clean.split(/\s+/).length <= 4) {
+    if (lower.includes('ecom') || lower.includes('venta') || lower.includes('tienda') || lower.includes('facturacion') || lower.includes('facturación') || lower.includes('carrito') || lower.includes('comercio')) {
+      return {
+        success: true,
+        action: 'GENERATE_DOMAIN',
+        domainId: 'ecommerce',
+        reasoning: 'Dominio de E-Commerce y Facturación identificado.',
+        message: 'Generando arquitectura completa de E-Commerce (Cliente, Pedido, Detalle, Producto, Factura, Pago)...'
+      };
+    }
+    if (lower.includes('hosp') || lower.includes('clinic') || lower.includes('médic') || lower.includes('medic') || lower.includes('paciente') || lower.includes('doctor')) {
+      return {
+        success: true,
+        action: 'GENERATE_DOMAIN',
+        domainId: 'hospital',
+        reasoning: 'Dominio de Hospital y Clínica Médica identificado.',
+        message: 'Generando arquitectura médica (Paciente, Médico, CitaMédica, Historial, Receta)...'
+      };
+    }
+    if (lower.includes('univ') || lower.includes('matric') || lower.includes('matríc') || lower.includes('facultad') || lower.includes('colegio') || lower.includes('estudiant')) {
+      return {
+        success: true,
+        action: 'GENERATE_DOMAIN',
+        domainId: 'universidad',
+        reasoning: 'Dominio de Universidad y Matrícula identificado.',
+        message: 'Generando arquitectura universitaria (Estudiante, Carrera, Curso, Matrícula, Profesor)...'
+      };
+    }
+    if (lower.includes('inven') || lower.includes('almacen') || lower.includes('almacén') || lower.includes('bodega') || lower.includes('stock')) {
+      return {
+        success: true,
+        action: 'GENERATE_DOMAIN',
+        domainId: 'inventario',
+        reasoning: 'Dominio de Inventario y Almacén identificado.',
+        message: 'Generando arquitectura logística (Almacén, Producto, MovimientoInventario, Proveedor)...'
+      };
+    }
+    if (lower.includes('biblio') || lower.includes('libro') || lower.includes('prestamo') || lower.includes('préstamo')) {
+      return {
+        success: true,
+        action: 'GENERATE_DOMAIN',
+        domainId: 'biblioteca',
+        reasoning: 'Dominio de Biblioteca y Préstamos identificado.',
+        message: 'Generando arquitectura de Biblioteca (Libro, Autor, Socio, Préstamo)...'
+      };
+    }
+    if (lower.includes('hotel') || lower.includes('huesped') || lower.includes('huésped') || lower.includes('habitacion') || lower.includes('habitación') || lower.includes('estadia')) {
+      return {
+        success: true,
+        action: 'GENERATE_DOMAIN',
+        domainId: 'hotel',
+        reasoning: 'Dominio de Hotel y Reservaciones identificado.',
+        message: 'Generando arquitectura hotelera (Habitación, Huésped, Reserva, Pago)...'
+      };
+    }
+    if (lower.includes('rbac') || lower.includes('rol') || lower.includes('permiso') || lower.includes('seguridad') || lower.includes('autentica') || lower.includes('acceso')) {
+      return {
+        success: true,
+        action: 'GENERATE_DOMAIN',
+        domainId: 'rbac',
+        reasoning: 'Dominio de Seguridad y Control de Acceso (RBAC) identificado.',
+        message: 'Generando arquitectura de Seguridad (Usuario, Rol, Permiso, Sesión)...'
+      };
+    }
+  }
+
+  // 5. Generación de diagramas descriptivos libres
   if ((lower.startsWith('generar diagrama') || lower.startsWith('diagrama de') || lower.startsWith('sistema de') || lower.startsWith('crear sistema')) && clean.split(/\s+/).length >= 4) {
     return {
       success: true,
@@ -85,21 +284,27 @@ export function parseNaturalLanguageCommand(text: string, existingClasses: Clase
     };
   }
 
-  // 1. Crear clase o entidad (ej: "crear clase Producto con precio Double y stock Integer", "crea la entidad Cliente con nombre y correo")
-  const esCreacionClase =
-    lower.includes('crear clase') || lower.includes('crea la clase') || lower.includes('crea una clase') ||
-    lower.includes('crea clase') || lower.includes('agrega clase') || lower.includes('agregar clase') ||
-    lower.includes('nueva clase') || lower.includes('nueva entidad') || lower.includes('crear entidad') ||
-    lower.includes('crea entidad') || lower.includes('crear tabla') || lower.includes('crea tabla') ||
-    lower.includes('nueva tabla') || (lower.startsWith('clase ') && clean.split(/\s+/).length >= 2);
+  // 6. Crear clase o entidad (flexible: "crear clase Factura", "nueva entidad Cliente", "Vehiculo", "clase Pedido con total Double")
+  const palabrasCreacion = [
+    'crear clase', 'crea la clase', 'crea una clase', 'crea clase', 'agrega clase', 'agregar clase',
+    'nueva clase', 'nueva entidad', 'crear entidad', 'crea entidad', 'crear tabla', 'crea tabla',
+    'nueva tabla', 'quiero una clase', 'hazme una clase', 'genera clase', 'entidad ', 'clase '
+  ];
+
+  const esCreacionClase = palabrasCreacion.some(p => lower.includes(p)) || 
+    (clean.split(/\s+/).length === 1 && /^[A-ZÁÉÍÓÚÑ][a-záéíóúñ0-9_]+$/.test(clean));
 
   if (esCreacionClase) {
     let className = '';
     const classMatch = lower.match(/(?:clase|entidad|tabla)\s+(?:de\s+|del\s+|la\s+|el\s+)?([a-záéíóúñ0-9_]+)/i);
     if (classMatch && classMatch[1]) {
       className = capitalize(classMatch[1]);
+    } else if (clean.split(/\s+/).length === 1) {
+      className = capitalize(clean);
     } else {
-      className = 'Entidad' + Math.floor(Math.random() * 100);
+      // Tomar la primera palabra relevante
+      const tokens = clean.replace(/^(crear|crea|nueva|nuevo|agrega|agregar|quiero|hazme|una|un|la|el)\s+/i, '').split(/\s+/);
+      className = tokens[0] ? capitalize(tokens[0]) : 'Entidad' + Math.floor(Math.random() * 100);
     }
 
     // Identificar estereotipo
@@ -109,7 +314,7 @@ export function parseNaturalLanguageCommand(text: string, existingClasses: Clase
     else if (lower.includes('repository') || lower.includes('repositorio')) stereotype = 'Repository';
     else if (lower.includes('enum')) stereotype = 'Enum';
 
-    const attributes: AtributoUml[] = [
+    let attributes: AtributoUml[] = [
       {
         id: 'attr-' + Date.now() + '-id',
         name: 'id',
@@ -120,11 +325,10 @@ export function parseNaturalLanguageCommand(text: string, existingClasses: Clase
       }
     ];
 
-    // Extraer atributos
+    // Extraer atributos si se especificaron
     const withIndex = lower.indexOf('con');
     if (withIndex !== -1) {
       const attributesChunk = clean.slice(withIndex + 3);
-      // Limpiar palabras conectoras
       const rawTokens = attributesChunk
         .replace(/[,;]/g, ' ')
         .split(/\s+/)
@@ -150,17 +354,14 @@ export function parseNaturalLanguageCommand(text: string, existingClasses: Clase
         let attrName = tokenLower;
         let attrType: AtributoUml['type'] = 'String';
 
-        // Comprobar si el token siguiente es un tipo de dato explícito
         if (i + 1 < filteredTokens.length && knownTypeTokens.has(filteredTokens[i + 1].toLowerCase())) {
           attrType = normalizeType(filteredTokens[i + 1]);
           i += 2;
         } else {
-          // Inferir tipo según semántica del nombre
           attrType = normalizeType(tokenLower);
           i += 1;
         }
 
-        // Evitar duplicados
         if (!attributes.some(a => a.name.toLowerCase() === attrName)) {
           attributes.push({
             id: `attr-${Date.now()}-${attrCount++}`,
@@ -172,6 +373,9 @@ export function parseNaturalLanguageCommand(text: string, existingClasses: Clase
           });
         }
       }
+    } else {
+      // Si no especificó atributos, generar atributos iniciales de dominio
+      attributes = generarAtributosPorDefecto(className);
     }
 
     // Calcular posición óptima sin solapar
@@ -185,32 +389,26 @@ export function parseNaturalLanguageCommand(text: string, existingClasses: Clase
       name: className,
       stereotype,
       attributes,
-      methods: [
-        {
-          id: `m-${Date.now()}-1`,
-          name: `get${className}Info`,
-          returnType: 'String',
-          visibility: '+',
-          parameters: ''
-        }
-      ],
+      methods: generarMetodosPorDefecto(className),
       position: { x: posX, y: posY }
     };
 
     return {
       success: true,
       action: 'CREATE_CLASS',
-      reasoning: `Se analizó el comando de voz/texto. Se identificó la entidad '${className}' con estereotipo <<${stereotype}>> y ${attributes.length} atributo(s): ${attributes.map(a => `${a.name}: ${a.type}`).join(', ')}.`,
+      reasoning: `Se analizó el comando. Se identificó la entidad '${className}' con estereotipo <<${stereotype}>> y ${attributes.length} atributos.`,
       createdClass: newClass,
       message: `Clase UML '${className}' generada con éxito.`
     };
   }
 
-  // 2. Agregar atributo a clase existente
-  if (lower.includes('agrega atributo') || lower.includes('agregar atributo') || lower.includes('añade atributo') ||
-      lower.includes('añadir atributo') || lower.includes('nuevo atributo') || lower.includes('agrega campo') ||
-      lower.includes('agregar campo') || lower.includes('poner atributo') || lower.includes('poner campo')) {
-
+  // 7. Agregar atributo a clase existente
+  if (
+    lower.includes('agrega atributo') || lower.includes('agregar atributo') || lower.includes('añade atributo') ||
+    lower.includes('añadir atributo') || lower.includes('nuevo atributo') || lower.includes('agrega campo') ||
+    lower.includes('agregar campo') || lower.includes('poner atributo') || lower.includes('poner campo') ||
+    lower.includes('añade campo') || lower.includes('añadir campo')
+  ) {
     const attrMatch = lower.match(/(?:atributo|campo|columna)\s+([a-záéíóúñ0-9_]+)/i);
     const classMatch = lower.match(/(?:a|en|para)\s+(?:la\s+clase\s+|la\s+entidad\s+)?([a-záéíóúñ0-9_]+)/i);
 
@@ -239,12 +437,13 @@ export function parseNaturalLanguageCommand(text: string, existingClasses: Clase
     }
   }
 
-  // 3. Relacionar clases
-  if (lower.includes('relaciona') || lower.includes('relacionar') || lower.includes('conecta') ||
-      lower.includes('conectar') || lower.includes('asocia') || lower.includes('asociar') ||
-      lower.includes('vincula') || lower.includes('vincular') || lower.includes('hereda') ||
-      lower.includes('compone')) {
-
+  // 8. Relacionar clases
+  if (
+    lower.includes('relaciona') || lower.includes('relacionar') || lower.includes('conecta') ||
+    lower.includes('conectar') || lower.includes('asocia') || lower.includes('asociar') ||
+    lower.includes('vincula') || lower.includes('vincular') || lower.includes('hereda') ||
+    lower.includes('compone') || lower.includes('asociacion')
+  ) {
     const matchedClasses = existingClasses.filter(c => lower.includes(c.name.toLowerCase()));
     if (matchedClasses.length >= 2) {
       let relType: RelacionUml['type'] = 'ASSOCIATION_1_N';
@@ -252,7 +451,7 @@ export function parseNaturalLanguageCommand(text: string, existingClasses: Clase
       let tgtMult = '0..*';
       let relLabel = 'gestiona';
 
-      if (lower.includes('muchos a muchos') || lower.includes('n a m') || lower.includes('n:m')) {
+      if (lower.includes('muchos a muchos') || lower.includes('n a m') || lower.includes('n:m') || lower.includes('n a n')) {
         relType = 'ASSOCIATION_N_M';
         srcMult = '0..*';
         tgtMult = '0..*';
@@ -267,7 +466,7 @@ export function parseNaturalLanguageCommand(text: string, existingClasses: Clase
         srcMult = '1';
         tgtMult = '1';
         relLabel = 'extiende';
-      } else if (lower.includes('compone') || lower.includes('composicion')) {
+      } else if (lower.includes('compone') || lower.includes('composicion') || lower.includes('composición')) {
         relType = 'COMPOSITION';
         srcMult = '1';
         tgtMult = '0..*';
@@ -294,10 +493,38 @@ export function parseNaturalLanguageCommand(text: string, existingClasses: Clase
     }
   }
 
+  // 9. Fallback inteligente: si el texto parece ser el nombre de una entidad no detectada previamente
+  const words = clean.split(/\s+/);
+  if (words.length <= 3 && !lower.includes('no') && !lower.includes('error')) {
+    const candidateName = capitalize(words[words.length - 1].replace(/[^a-zA-ZáéíóúÁÉÍÓÚñÑ0-9]/g, ''));
+    if (candidateName.length >= 3) {
+      const baseOffset = existingClasses.length;
+      const posX = 120 + (baseOffset % 3) * 340;
+      const posY = 140 + Math.floor(baseOffset / 3) * 280;
+
+      const fallbackClass: ClaseUml = {
+        id: 'class-' + Date.now(),
+        name: candidateName,
+        stereotype: 'Entity',
+        attributes: generarAtributosPorDefecto(candidateName),
+        methods: generarMetodosPorDefecto(candidateName),
+        position: { x: posX, y: posY }
+      };
+
+      return {
+        success: true,
+        action: 'CREATE_CLASS',
+        reasoning: `Interpretado automáticamente como solicitud para crear la entidad '${candidateName}'.`,
+        createdClass: fallbackClass,
+        message: `Clase UML '${candidateName}' generada automáticamente.`
+      };
+    }
+  }
+
   return {
     success: false,
     action: 'UNKNOWN',
-    reasoning: 'No se pudo mapear el comando a una operación UML. Prueba decir: "Crear clase Factura con numero String, total Double y fecha LocalDate".',
-    message: 'Comando no reconocido. Prueba: "crear clase Factura con total Double" o presiona los chips rápidos.'
+    reasoning: 'No se pudo mapear el comando a una operación UML conocida.',
+    message: 'Prueba: "auditar proyecto", "crear clase Factura", "sistema de ventas", "relaciona Cliente con Pedido".'
   };
 }

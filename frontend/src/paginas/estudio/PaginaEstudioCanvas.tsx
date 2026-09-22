@@ -1109,6 +1109,7 @@ export const PaginaEstudioCanvas: React.FC<PaginaEstudioCanvasProps> = ({
               customFiles={customCodeMap}
               onAddClass={handleAddClass}
               onAddAttribute={handleAddAttribute}
+              onAddMethod={handleAddMethod}
               onAddRelation={handleAddRelation}
               onOpenWhiteboard={() => setShowWhiteboardModal(true)}
               onOpenCodeDock={() => setIsCodeDockOpen(true)}

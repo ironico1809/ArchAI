@@ -149,8 +149,11 @@ export const ProjectStructureFlyout: React.FC<ProjectStructureFlyoutProps> = ({
         WebkitBackdropFilter: 'var(--glass-blur-lg)',
         border: '1px solid var(--glass-flyout-border)',
         borderRadius: '16px',
-        boxShadow: 'var(--glass-topbar-shadow)',
-        zIndex: 25,
+        boxShadow: isExpanded
+          ? '0 24px 70px -12px rgba(0, 0, 20, 0.55), 0 0 0 1px rgba(255, 255, 255, 0.04)'
+          : 'var(--glass-topbar-shadow)',
+        // Cajón: al expandirse se eleva sobre la Toolbox (z-index 40 > 35) y la tapa temporalmente.
+        zIndex: isExpanded ? 40 : 25,
         display: 'flex',
         flexDirection: 'column',
         overflow: 'hidden',

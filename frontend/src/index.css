@@ -112,15 +112,25 @@
   --glass-dock-gutter-text: #5c5a86;
 
   /* Voice & AI Assistant */
-  --glass-ai-bg: rgba(255, 255, 255, 0.72);
-  --glass-ai-border: rgba(232, 195, 158, 0.68);
-  --glass-ai-shadow: 0 16px 40px -4px rgba(23, 26, 74, 0.13), inset 0 1px 1px 0 rgba(255, 255, 255, 0.90);
-  --glass-ai-input-bg: rgba(255, 255, 255, 0.60);
-  --glass-ai-input-border: rgba(232, 195, 158, 0.58);
+  --glass-ai-bg: rgba(255, 255, 255, 0.88);
+  --glass-ai-border: rgba(232, 195, 158, 0.78);
+  --glass-ai-shadow: 0 16px 40px -4px rgba(23, 26, 74, 0.16), 0 2px 10px rgba(23, 26, 74, 0.08), inset 0 1px 1px 0 rgba(255, 255, 255, 0.95);
+  --glass-ai-input-bg: rgba(245, 225, 206, 0.28);
+  --glass-ai-input-border: rgba(232, 195, 158, 0.70);
   --glass-ai-input-text: #000020;
-  --glass-ai-mic-bg: rgba(23, 26, 74, 0.16);
-  --glass-ai-mic-border: rgba(23, 26, 74, 0.45);
+  --glass-ai-mic-bg: rgba(23, 26, 74, 0.12);
+  --glass-ai-mic-border: rgba(23, 26, 74, 0.40);
   --glass-ai-mic-color: #171a4a;
+  --glass-ai-icon-bg: rgba(23, 26, 74, 0.08);
+  --glass-ai-icon-border: rgba(23, 26, 74, 0.25);
+  --glass-ai-icon-color: #171a4a;
+  --glass-ai-chip-bg: rgba(255, 255, 255, 0.85);
+  --glass-ai-chip-border: rgba(232, 195, 158, 0.75);
+  --glass-ai-chip-text: #171a4a;
+  --glass-ai-chip-hover-bg: rgba(245, 225, 206, 0.55);
+  --glass-ai-chip-hover-border: rgba(23, 26, 74, 0.40);
+  --glass-ai-diag-bg: rgba(255, 255, 255, 0.95);
+  --glass-ai-diag-border: rgba(232, 195, 158, 0.80);
 
   /* Typography (Midnight Navy scale) */
   --text-primary: #000020;
@@ -254,15 +264,25 @@
   --glass-dock-gutter-text: #8892b0;
 
   /* Voice & AI Assistant */
-  --glass-ai-bg: rgba(23, 26, 74, 0.85);
-  --glass-ai-border: rgba(232, 195, 158, 0.30);
-  --glass-ai-shadow: 0 16px 40px rgba(0, 0, 32, 0.75);
-  --glass-ai-input-bg: rgba(0, 0, 32, 0.50);
-  --glass-ai-input-border: rgba(245, 225, 206, 0.12);
+  --glass-ai-bg: rgba(23, 26, 74, 0.92);
+  --glass-ai-border: rgba(232, 195, 158, 0.35);
+  --glass-ai-shadow: 0 18px 45px rgba(0, 0, 32, 0.85), inset 0 1px 1px 0 rgba(232, 195, 158, 0.15);
+  --glass-ai-input-bg: rgba(0, 0, 32, 0.60);
+  --glass-ai-input-border: rgba(232, 195, 158, 0.25);
   --glass-ai-input-text: #f5e1ce;
   --glass-ai-mic-bg: rgba(232, 195, 158, 0.15);
-  --glass-ai-mic-border: rgba(232, 195, 158, 0.40);
+  --glass-ai-mic-border: rgba(232, 195, 158, 0.45);
   --glass-ai-mic-color: #e8c39e;
+  --glass-ai-icon-bg: rgba(232, 195, 158, 0.12);
+  --glass-ai-icon-border: rgba(232, 195, 158, 0.30);
+  --glass-ai-icon-color: #e8c39e;
+  --glass-ai-chip-bg: rgba(0, 0, 32, 0.45);
+  --glass-ai-chip-border: rgba(232, 195, 158, 0.25);
+  --glass-ai-chip-text: #f5e1ce;
+  --glass-ai-chip-hover-bg: rgba(232, 195, 158, 0.18);
+  --glass-ai-chip-hover-border: rgba(232, 195, 158, 0.50);
+  --glass-ai-diag-bg: rgba(15, 14, 51, 0.95);
+  --glass-ai-diag-border: rgba(232, 195, 158, 0.35);
 
   /* Typography */
   --text-primary: #f5e1ce;
@@ -526,19 +546,21 @@ h1, h2, h3, h4, h5, h6 {
   left: 50%;
   transform: translateX(-50%);
   background: var(--glass-ai-bg);
-  backdrop-filter: var(--glass-blur-lg);
-  -webkit-backdrop-filter: var(--glass-blur-lg);
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
   border: 1px solid var(--glass-ai-border);
   border-radius: var(--radius-xl);
-  padding: 14px 20px 18px 20px;
+  padding: 14px 20px 16px 20px;
   box-shadow: var(--glass-ai-shadow);
   display: flex;
   align-items: center;
   gap: 16px;
   z-index: 50;
-  max-width: 680px;
+  max-width: 720px;
   width: 92%;
   animation: fadeIn 0.2s ease-out;
+  color: var(--text-primary);
+  transition: background 0.25s ease, border-color 0.25s ease, box-shadow 0.25s ease;
 }
 
 .ai-chips-scroll {
@@ -552,11 +574,61 @@ h1, h2, h3, h4, h5, h6 {
 }
 
 .ai-chip-btn {
-  transition: all 0.15s ease-out;
+  background: var(--glass-ai-chip-bg);
+  border: 1px solid var(--glass-ai-chip-border);
+  color: var(--glass-ai-chip-text);
+  border-radius: 8px;
+  padding: 4px 10px;
+  font-size: 0.73rem;
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  white-space: nowrap;
+  flex-shrink: 0;
+  cursor: pointer;
+  transition: all 0.16s ease-out;
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
 }
 .ai-chip-btn:hover {
+  background: var(--glass-ai-chip-hover-bg);
+  border-color: var(--glass-ai-chip-hover-border);
   transform: translateY(-1px);
-  filter: brightness(1.2);
+}
+
+.ai-chip-btn-audit {
+  background: rgba(16, 185, 129, 0.14) !important;
+  border-color: rgba(16, 185, 129, 0.45) !important;
+  color: var(--accent-emerald) !important;
+}
+.ai-chip-btn-audit:hover {
+  background: rgba(16, 185, 129, 0.22) !important;
+  transform: translateY(-1px);
+}
+
+.ai-chip-btn-autofix {
+  background: rgba(245, 158, 11, 0.14) !important;
+  border-color: rgba(245, 158, 11, 0.45) !important;
+  color: var(--accent-amber) !important;
+}
+.ai-chip-btn-autofix:hover {
+  background: rgba(245, 158, 11, 0.22) !important;
+  transform: translateY(-1px);
+}
+
+.ai-diagnostic-card {
+  background: var(--glass-ai-diag-bg);
+  border: 1px solid var(--glass-ai-diag-border);
+  border-radius: 12px;
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 220px;
+  overflow-y: auto;
+  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.15);
+  animation: fadeIn 0.2s ease-out;
 }
 
 .mic-button-glow {
