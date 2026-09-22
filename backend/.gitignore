@@ -1,0 +1,25 @@
+# Archivos de entorno y credenciales
+.env
+.env.local
+*.env
+
+# Maven & Build artifacts
+target/
+*.jar
+*.war
+*.ear
+
+# Logs
+*.log
+
+# IDE & Editor files
+.idea/
+*.iml
+.vscode/
+.settings/
+.project
+.classpath
+
+# OS files
+.DS_Store
+Thumbs.db

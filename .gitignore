@@ -1,0 +1,49 @@
+# =====================
+# ArchAI - .gitignore raíz
+# =====================
+
+# ---- Backend (Spring Boot / Maven) ----
+backend/target/
+*.jar
+*.war
+*.ear
+
+# ---- Frontend (React / Vite / TypeScript) ----
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+*.tsbuildinfo
+
+# ---- Entorno y credenciales ----
+# (nunca subir variables de entorno con secretos)
+.env
+.env.local
+.env.production
+.env.development
+*.env
+!*.env.example
+!.env.example
+
+# ---- Logs ----
+*.log
+logs/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# ---- IDE y editores ----
+.idea/
+*.iml
+.vscode/
+.settings/
+.project
+.classpath
+*.code-workspace
+
+# ---- SO / misc ----
+.DS_Store
+Thumbs.db
+desktop.ini
+*.swp
+*~

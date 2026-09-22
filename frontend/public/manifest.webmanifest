@@ -1,0 +1,21 @@
+{
+  "name": "ArchAI - Arquitectura con IA",
+  "short_name": "ArchAI",
+  "description": "Plataforma de modelado UML 2.5 con IA, colaboración STOMP y generación de código Spring Boot.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "landscape",
+  "background_color": "#0B1220",
+  "theme_color": "#6C63FF",
+  "lang": "es",
+  "categories": ["developer tools", "productivity"],
+  "icons": [
+    {
+      "src": "/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ]
+}
