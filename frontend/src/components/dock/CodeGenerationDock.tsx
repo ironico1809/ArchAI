@@ -26,7 +26,20 @@ import {
   Sparkles,
   History,
   Trash2,
-  Clock
+  Clock,
+  CheckCircle2,
+  Pencil,
+  Eye,
+  AlertTriangle,
+  Package,
+  Ruler,
+  Building2,
+  Globe,
+  Zap,
+  Smartphone,
+  Server,
+  Bot,
+  Heart
 } from 'lucide-react';
 import { ModeloDiagrama } from '../../types/uml';
 import { GeneracionHistorial } from '../../types/generation';
@@ -36,6 +49,7 @@ import {
   generatePostmanCollection, 
   generateXmiXml 
 } from '../../services/codeGenerator';
+import { exportarXmiEnterpriseArchitect } from '../../services/exportarXmiEA';
 import { generateProjectoCompleto } from '../../services/codeGeneratorIA';
 import { buildZip, ZipEntry } from '../../services/zipEncoder';
 import {
@@ -113,6 +127,7 @@ export const CodeGenerationDock: React.FC<CodeGenerationDockProps> = ({
   onCustomCodeChange
 }) => {
   const [activeTab, setActiveTab] = useState<'spring' | 'postgres' | 'postman' | 'xmi' | 'ia'>('spring');
+  const [xmiDialect, setXmiDialect] = useState<'ea' | 'omg'>('ea');
   const [selectedJavaFileIdx, setSelectedJavaFileIdx] = useState<number>(0);
   const [copied, setCopied] = useState<boolean>(false);
   const [downloadingZip, setDownloadingZip] = useState<boolean>(false);
@@ -231,6 +246,7 @@ export const CodeGenerationDock: React.FC<CodeGenerationDockProps> = ({
   const postgresDdl = useMemo(() => generatePostgreSqlDdl(diagram), [diagram]);
   const postmanJson = useMemo(() => generatePostmanCollection(diagram), [diagram]);
   const xmiXml = useMemo(() => generateXmiXml(diagram), [diagram]);
+  const eaXmlFinal = useMemo(() => exportarXmiEnterpriseArchitect(diagram), [diagram]);
 
   const springFilesFinal = backendPreview?.files?.length ? backendPreview.files : springFiles;
   const postgresDdlFinal = backendPreview?.postgresDdl || postgresDdl;
@@ -304,13 +320,13 @@ export const CodeGenerationDock: React.FC<CodeGenerationDockProps> = ({
       case 'postman':
         return postmanJsonFinal;
       case 'xmi':
-        return xmiXmlFinal;
+        return xmiDialect === 'ea' ? eaXmlFinal : xmiXmlFinal;
       case 'ia':
         return iaSelectedFile?.content || '// Selecciona un archivo del proyecto IA + Android';
       default:
         return '';
     }
-  }, [activeTab, springFilesFinal, idxSeguro, postgresDdlFinal, postmanJsonFinal, xmiXmlFinal, iaSelectedFile]);
+  }, [activeTab, springFilesFinal, idxSeguro, postgresDdlFinal, postmanJsonFinal, xmiXmlFinal, eaXmlFinal, xmiDialect, iaSelectedFile]);
 
   const activeFilename = useMemo(() => {
     switch (activeTab) {
@@ -321,11 +337,13 @@ export const CodeGenerationDock: React.FC<CodeGenerationDockProps> = ({
       case 'postman':
         return 'postman_collection.json';
       case 'xmi':
-        return 'model.xmi';
+        return xmiDialect === 'ea'
+          ? `${(diagram.title || 'archai_model').toLowerCase().replace(/\s+/g, '_')}_enterprise_architect.xmi`
+          : 'model.xmi';
       case 'ia':
         return iaSelectedFile?.filename || 'file';
     }
-  }, [activeTab, springFilesFinal, idxSeguro, iaSelectedFile]);
+  }, [activeTab, springFilesFinal, idxSeguro, iaSelectedFile, xmiDialect, diagram.title]);
 
   // Contenido final: si el usuario lo editó, muestra su versión personalizada
   const activeContent = customCodeMap[activeFilename] !== undefined ? customCodeMap[activeFilename] : baseContent;
@@ -334,9 +352,10 @@ export const CodeGenerationDock: React.FC<CodeGenerationDockProps> = ({
   // Métricas de progreso de revisión y completitud
   const allFileKeys = useMemo(() => {
     const list = springFilesFinal.map(f => f.filename);
-    list.push('schema_postgres.sql', 'postman_collection.json', 'model.xmi');
+    const eaName = `${(diagram.title || 'archai_model').toLowerCase().replace(/\s+/g, '_')}_enterprise_architect.xmi`;
+    list.push('schema_postgres.sql', 'postman_collection.json', 'model.xmi', eaName);
     return list;
-  }, [springFilesFinal]);
+  }, [springFilesFinal, diagram.title]);
 
   // Categorización y filtrado de archivos Spring Boot
   const filesWithLayers = useMemo(() => {
@@ -518,7 +537,7 @@ export const CodeGenerationDock: React.FC<CodeGenerationDockProps> = ({
         transition: isDraggingRef.current ? 'none' : 'width 0.2s cubic-bezier(0.16, 1, 0.3, 1)'
       }}
     >
-      {/* ↔️ Tirador de Redimensionamiento Horizontal (Drag Handle) */}
+      {/* Tirador de Redimensionamiento Horizontal (Drag Handle) */}
       <div
         onMouseDown={handleMouseDownResize}
         title="Arrastra horizontalmente para redimensionar el panel de código"
@@ -772,7 +791,7 @@ export const CodeGenerationDock: React.FC<CodeGenerationDockProps> = ({
           }}
         >
           <FileCode2 size={14} color={activeTab === 'xmi' ? 'var(--accent-cyan)' : 'var(--text-muted)'} />
-          XMI 2.5
+          XMI / EA
         </button>
 
         <button
@@ -1007,8 +1026,8 @@ export const CodeGenerationDock: React.FC<CodeGenerationDockProps> = ({
                         </div>
 
                         {/* Indicador de Estado */}
-                        <span style={{ fontSize: '0.68rem', flexShrink: 0 }}>
-                          {status === 'validado' ? '✅' : status === 'modificado' ? '✏️' : ''}
+                        <span style={{ fontSize: '0.68rem', flexShrink: 0, display: 'inline-flex', alignItems: 'center', gap: 3 }}>
+                          {status === 'validado' ? <CheckCircle2 size={13} color="#10B981" /> : status === 'modificado' ? <Pencil size={13} color="#F59E0B" /> : ''}
                         </span>
                       </button>
                     );
@@ -1070,7 +1089,7 @@ export const CodeGenerationDock: React.FC<CodeGenerationDockProps> = ({
               alignItems: 'center',
               gap: '4px'
             }}>
-              📱 React Native + 💙 Flutter
+              <Smartphone size={11} color="#60A5FA" /> React Native + <Heart size={11} color="#38BDF8" /> Flutter
             </span>
             <span style={{ fontSize: '0.66rem', color: 'var(--text-muted)' }}>
               {iaProjectFiles.length} archivos · offline
@@ -1096,7 +1115,7 @@ export const CodeGenerationDock: React.FC<CodeGenerationDockProps> = ({
               title="Descargar ZIP completo: backend Spring Boot + IA local (Ollama) + app React Native + app Flutter"
             >
               <Download size={13} />
-              {downloadingIaZip ? 'Empaquetando ZIP…' : '📦 Descargar Suite Completa (Backend + RN + Flutter)'}
+              {downloadingIaZip ? 'Empaquetando ZIP…' : 'Descargar Suite Completa (Backend + RN + Flutter)'}
             </button>
 
             <button
@@ -1120,7 +1139,7 @@ export const CodeGenerationDock: React.FC<CodeGenerationDockProps> = ({
               title="Descargar únicamente el proyecto Flutter listo para correr con flutter run"
             >
               <Download size={12} />
-              <span>💙 Descargar Proyecto Flutter</span>
+              <span><Heart size={12} color="#38BDF8" /> Descargar Proyecto Flutter</span>
             </button>
           </div>
 
@@ -1142,7 +1161,7 @@ export const CodeGenerationDock: React.FC<CodeGenerationDockProps> = ({
             }}
           >
             {iaBackendExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
-            <span>🖥️ BACKEND SPRING BOOT + IA LOCAL ({iaBackendFiles.length})</span>
+            <span><Server size={13} color="var(--text-secondary)" /> BACKEND SPRING BOOT + IA LOCAL ({iaBackendFiles.length})</span>
           </button>
           {iaBackendExpanded && (
             <div style={{
@@ -1218,7 +1237,7 @@ export const CodeGenerationDock: React.FC<CodeGenerationDockProps> = ({
             }}
           >
             {iaFrontendExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
-            <span>📱 FRONTEND REACT NATIVE ANDROID ({iaFrontendFiles.length})</span>
+            <span><Smartphone size={13} color="var(--text-secondary)" /> FRONTEND REACT NATIVE ANDROID ({iaFrontendFiles.length})</span>
           </button>
           {iaFrontendExpanded && (
             <div style={{
@@ -1295,7 +1314,7 @@ export const CodeGenerationDock: React.FC<CodeGenerationDockProps> = ({
             }}
           >
             {iaFlutterExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
-            <span>💙 FRONTEND FLUTTER DART ({iaFlutterFiles.length})</span>
+            <span><Heart size={13} color="#38BDF8" /> FRONTEND FLUTTER DART ({iaFlutterFiles.length})</span>
           </button>
           {iaFlutterExpanded && (
             <div style={{
@@ -1350,6 +1369,147 @@ export const CodeGenerationDock: React.FC<CodeGenerationDockProps> = ({
                   </button>
                 );
               })}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Pestaña XMI: Selector de Dialecto (Enterprise Architect vs Estándar OMG) + Guía de Importación */}
+      {activeTab === 'xmi' && (
+        <div
+          style={{
+            padding: '12px 14px',
+            background: 'rgba(0, 0, 0, 0.16)',
+            borderBottom: '1px solid var(--glass-dock-border)',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '10px'
+          }}
+        >
+          {/* Dialect Switcher Segmented Control */}
+          <div style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: '8px',
+            flexWrap: 'wrap'
+          }}>
+            <span style={{
+              fontSize: '0.72rem',
+              fontWeight: 800,
+              color: 'var(--text-primary)',
+              letterSpacing: '0.04em'
+            }}>
+              DIALECTO XMI:
+            </span>
+
+            <div style={{
+              display: 'flex',
+              gap: '6px',
+              background: 'rgba(0, 0, 0, 0.25)',
+              padding: '3px',
+              borderRadius: '8px',
+              border: '1px solid var(--glass-dock-border)'
+            }}>
+              <button
+                onClick={() => setXmiDialect('ea')}
+                style={{
+                  padding: '5px 12px',
+                  borderRadius: '6px',
+                  border: xmiDialect === 'ea' ? '1px solid var(--accent-cyan)' : '1px solid transparent',
+                  background: xmiDialect === 'ea' ? 'rgba(6, 182, 212, 0.18)' : 'transparent',
+                  color: xmiDialect === 'ea' ? 'var(--accent-cyan)' : 'var(--text-muted)',
+                  fontSize: '0.70rem',
+                  fontWeight: xmiDialect === 'ea' ? 800 : 600,
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  transition: 'all 0.15s ease'
+                }}
+              >
+                <span><Building2 size={12} color="var(--text-secondary)" /> Sparx Enterprise Architect (XMI 1.1 + Diagrama)</span>
+              </button>
+
+              <button
+                onClick={() => setXmiDialect('omg')}
+                style={{
+                  padding: '5px 12px',
+                  borderRadius: '6px',
+                  border: xmiDialect === 'omg' ? '1px solid var(--accent-primary)' : '1px solid transparent',
+                  background: xmiDialect === 'omg' ? 'var(--btn-studio-share-bg)' : 'transparent',
+                  color: xmiDialect === 'omg' ? 'var(--accent-primary)' : 'var(--text-muted)',
+                  fontSize: '0.70rem',
+                  fontWeight: xmiDialect === 'omg' ? 800 : 600,
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  transition: 'all 0.15s ease'
+                }}
+              >
+                <span><Globe size={12} color="var(--text-secondary)" /> Estándar OMG (XMI 2.1)</span>
+              </button>
+            </div>
+          </div>
+
+          {/* Guía Operativa y Características del Dialecto Seleccionado */}
+          {xmiDialect === 'ea' ? (
+            <div
+              style={{
+                padding: '10px 12px',
+                borderRadius: '8px',
+                background: 'rgba(6, 182, 212, 0.08)',
+                border: '1px solid rgba(6, 182, 212, 0.25)',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '8px'
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <span style={{ fontSize: '0.72rem', fontWeight: 800, color: 'var(--accent-cyan)' }}>
+                  <Zap size={12} color="var(--accent-cyan)" style={{ verticalAlign: '-1px' }} /> Compatible con Sparx Enterprise Architect (v13, v14, v15, v16+)
+                </span>
+                <span style={{
+                  fontSize: '0.64rem',
+                  padding: '1px 6px',
+                  borderRadius: '4px',
+                  background: 'rgba(6, 182, 212, 0.2)',
+                  color: 'var(--accent-cyan)',
+                  fontWeight: 700
+                }}>
+                  Geometría + Conectores + Tipos OK
+                </span>
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))', gap: '8px' }}>
+                <div style={{ background: 'rgba(0,0,0,0.22)', padding: '6px 8px', borderRadius: '6px', fontSize: '0.68rem', lineHeight: '1.4' }}>
+                  <div style={{ fontWeight: 700, color: 'var(--text-primary)', marginBottom: '2px' }}>1. Descargar XMI</div>
+                  <div style={{ color: 'var(--text-secondary)' }}>Haz clic en <strong>Descargar Archivo</strong> abajo para guardar el <code>.xmi</code>.</div>
+                </div>
+                <div style={{ background: 'rgba(0,0,0,0.22)', padding: '6px 8px', borderRadius: '6px', fontSize: '0.68rem', lineHeight: '1.4' }}>
+                  <div style={{ fontWeight: 700, color: 'var(--text-primary)', marginBottom: '2px' }}>2. Importar en EA</div>
+                  <div style={{ color: 'var(--text-secondary)' }}>En EA, clic derecho en un paquete ➔ <em>Import/Export</em> ➔ <em>Import Package from XMI...</em> (o <code>Ctrl+Alt+I</code>).</div>
+                </div>
+                <div style={{ background: 'rgba(0,0,0,0.22)', padding: '6px 8px', borderRadius: '6px', fontSize: '0.68rem', lineHeight: '1.4' }}>
+                  <div style={{ fontWeight: 700, color: 'var(--text-primary)', marginBottom: '2px' }}>3. Visualización Completa</div>
+                  <div style={{ color: 'var(--text-secondary)' }}>Abre el diagrama: clases, atributos PK, tipos de parámetros, cardinalidades y posiciones se abren tal como en ArchAI.</div>
+                </div>
+              </div>
+            </div>
+          ) : (
+            <div
+              style={{
+                padding: '10px 12px',
+                borderRadius: '8px',
+                background: 'rgba(255, 255, 255, 0.04)',
+                border: '1px solid rgba(255, 255, 255, 0.1)',
+                fontSize: '0.70rem',
+                color: 'var(--text-secondary)',
+                lineHeight: '1.4'
+              }}
+            >
+              <strong>Dialecto Estándar OMG XMI 2.1:</strong> Diseñado para importar/exportar la estructura abstracta en herramientas UML genéricas (MagicDraw, Papyrus, StarUML, Eclipse UML2).
             </div>
           )}
         </div>
@@ -1451,7 +1611,7 @@ export const CodeGenerationDock: React.FC<CodeGenerationDockProps> = ({
         </div>
       </div>
 
-      {/* 🎯 Barra de Estado de Revisión y Madurez del Archivo */}
+      {/* Barra de Estado de Revisión y Madurez del Archivo */}
       <div
         style={{
           padding: '6px 14px',
@@ -1490,7 +1650,7 @@ export const CodeGenerationDock: React.FC<CodeGenerationDockProps> = ({
                 : 'rgba(56, 189, 248, 0.4)'
             }`
           }}>
-            {currentStatus === 'validado' ? '✅ Validado' : currentStatus === 'modificado' ? '✏️ Modificado' : '🤖 Generado por IA'}
+            {currentStatus === 'validado' ? <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><CheckCircle2 size={13} color="#10B981" /> Validado</span> : currentStatus === 'modificado' ? <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><Pencil size={13} color="#F59E0B" /> Modificado</span> : <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><Bot size={13} color="#38BDF8" /> Generado por IA</span>}
           </span>
 
           <span style={{ color: 'var(--text-muted)' }}>
@@ -1573,7 +1733,7 @@ export const CodeGenerationDock: React.FC<CodeGenerationDockProps> = ({
             }}
             title="Alternar entre modo editor en vivo y solo lectura"
           >
-            {isEditMode ? '✏️ Editable' : '👁️ Lectura'}
+            {isEditMode ? <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><Pencil size={13} /> Editable</span> : <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><Eye size={13} /> Lectura</span>}
           </button>
         </div>
       </div>
@@ -1655,7 +1815,7 @@ export const CodeGenerationDock: React.FC<CodeGenerationDockProps> = ({
         </div>
       </div>
 
-      {/* 🕓 Historial de Generaciones (CU-10..CU-14) — Panel Overlay */}
+      {/* Historial de Generaciones (CU-10..CU-14) — Panel Overlay */}
       {showHistorial && (
         <div
           style={{
@@ -1757,7 +1917,10 @@ export const CodeGenerationDock: React.FC<CodeGenerationDockProps> = ({
                 border: '1px solid rgba(239, 68, 68, 0.35)',
                 color: '#F87171'
               }}>
-                ⚠️ {errorHistorial}
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                <AlertTriangle size={14} color="#F87171" />
+                {errorHistorial}
+              </span>
               </div>
             )}
 
@@ -1840,7 +2003,7 @@ export const CodeGenerationDock: React.FC<CodeGenerationDockProps> = ({
                     fontWeight: 800,
                     color: m.color
                   }}>
-                    {entry.tipo === 'ZIP' ? '📦' : entry.tipo === 'XMI' ? '📐' : <Code2 size={13} color={m.color} />}
+                    {entry.tipo === 'ZIP' ? <Package size={14} color={m.color} /> : entry.tipo === 'XMI' ? <Ruler size={14} color={m.color} /> : <Code2 size={13} color={m.color} />}
                   </div>
 
                   <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: '2px' }}>
@@ -1877,10 +2040,10 @@ export const CodeGenerationDock: React.FC<CodeGenerationDockProps> = ({
                       gap: '8px',
                       flexWrap: 'wrap'
                     }}>
-                      {entry.nombreArchivo && <span>📄 {entry.nombreArchivo}</span>}
+                      {entry.nombreArchivo && <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><FileText size={12} style={{ flexShrink: 0 }} /> {entry.nombreArchivo}</span>}
                       {tamano && <span>{tamano}</span>}
                       {fecha && !isNaN(fecha.getTime()) && (
-                        <span>🕓 {fecha.toLocaleString('es-ES', { dateStyle: 'short', timeStyle: 'short' })}</span>
+                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><Clock size={12} style={{ flexShrink: 0 }} /> {fecha.toLocaleString('es-ES', { dateStyle: 'short', timeStyle: 'short' })}</span>
                       )}
                     </div>
                   </div>

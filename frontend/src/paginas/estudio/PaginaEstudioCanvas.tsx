@@ -10,11 +10,15 @@ import { PanelGeneracionCodigo } from '../../components/generador/PanelGeneracio
 import { ModalEscanerPizarra } from '../../components/lienzo/ModalEscanerPizarra';
 import { PanelColaboracion } from '../../components/colaboracion/PanelColaboracion';
 import { ModalGestionEquipo } from '../../components/equipo/ModalGestionEquipo';
+import { ModalAtajosTeclado } from '../../components/canvas/ModalAtajosTeclado';
 import { RolEquipo, PermisosUsuario, MiembroEquipo, obtenerPermisosRol } from '../../types/rbac';
 import { calcularMadurezProyecto } from '../../services/softwareMaturity';
 import { generarMetodosSugeridos } from '../../services/projectBrainService';
 import { ClienteStomp } from '../../services/stompClient';
 import { generateXmiXml } from '../../services/codeGenerator';
+import { exportarXmiEnterpriseArchitect } from '../../services/exportarXmiEA';
+import { normalizarDiagrama } from '../../services/agenteDiagrama';
+import { sanitizarDiagramaUML25 } from '../../services/semanticDomainEngine';
 import {
   guardarDiagramaEnNube,
   listarVersiones,
@@ -32,7 +36,8 @@ import {
   sincronizarColaOffline,
   obtenerColaOffline
 } from '../../services/api';
-import { Share2, Copy, Check, X, Save, History, UserCircle, CloudOff, RotateCcw, Upload, Settings2, RefreshCw } from 'lucide-react';
+import { Share2, Copy, Check, X, Save, History, UserCircle, CloudOff, RotateCcw, Upload, Settings2, RefreshCw, Users, UserCheck, Sun, Moon, Zap, Radio, CheckCircle2, AlertTriangle } from 'lucide-react';
+import { GlassModal } from '../../components/glass/GlassModal';
 
 interface PaginaEstudioCanvasProps {
   session: InformacionSesion;
@@ -187,6 +192,16 @@ export const PaginaEstudioCanvas: React.FC<PaginaEstudioCanvasProps> = ({
   const [showWhiteboardModal, setShowWhiteboardModal] = useState<boolean>(false);
   const [showShareModal, setShowShareModal] = useState<boolean>(false);
   const [shareCopied, setShareCopied] = useState<boolean>(false);
+  const [showShortcutsModal, setShowShortcutsModal] = useState<boolean>(false);
+  const clipboardClassRef = useRef<ClaseUml | null>(null);
+
+  // Pilas de Historial para Deshacer (Undo) y Rehacer (Redo)
+  const undoStackRef = useRef<ModeloDiagrama[]>([]);
+  const redoStackRef = useRef<ModeloDiagrama[]>([]);
+  const [historyTick, setHistoryTick] = useState<number>(0);
+
+  const canUndo = historyTick >= 0 && undoStackRef.current.length > 0;
+  const canRedo = historyTick >= 0 && redoStackRef.current.length > 0;
 
   useEffect(() => {
     if (diagramId) {
@@ -231,6 +246,155 @@ export const PaginaEstudioCanvas: React.FC<PaginaEstudioCanvasProps> = ({
     document.documentElement.setAttribute('data-theme', theme);
     localStorage.setItem('archai_theme', theme);
   }, [theme]);
+
+  // ───────────────── Historial Universal (Undo/Redo) & Métodos de Edición ─────────────────
+  const serializeForDiff = (d: ModeloDiagrama): string => {
+    if (!d || !d.classes) return '';
+    return JSON.stringify({
+      title: d.title,
+      classes: d.classes.map(c => ({
+        id: c.id,
+        name: c.name,
+        stereotype: c.stereotype,
+        isAbstract: c.isAbstract,
+        isInterface: c.isInterface,
+        position: c.position,
+        attributes: c.attributes,
+        methods: c.methods
+      })),
+      relations: (d.relations || []).map(r => ({
+        id: r.id,
+        sourceClassId: r.sourceClassId,
+        targetClassId: r.targetClassId,
+        type: r.type,
+        label: r.label,
+        sourceMultiplicity: r.sourceMultiplicity,
+        targetMultiplicity: r.targetMultiplicity
+      }))
+    });
+  };
+
+  const handleUpdateDiagram = (
+    updater: ModeloDiagrama | ((prev: ModeloDiagrama) => ModeloDiagrama),
+    recordHistory: boolean = true
+  ) => {
+    setDiagram(prev => {
+      const rawNext = typeof updater === 'function' ? updater(prev) : updater;
+      if (rawNext === prev) return prev;
+      const next = sanitizarDiagramaUML25(rawNext);
+
+      if (recordHistory) {
+        const prevSerialized = serializeForDiff(prev);
+        const nextSerialized = serializeForDiff(next);
+        if (prevSerialized !== nextSerialized) {
+          undoStackRef.current.push(JSON.parse(JSON.stringify(prev)));
+          if (undoStackRef.current.length > 50) {
+            undoStackRef.current.shift();
+          }
+          redoStackRef.current = [];
+          setHistoryTick(t => t + 1);
+        }
+      }
+
+      return next;
+    });
+  };
+
+  const handleUndo = () => {
+    if (undoStackRef.current.length === 0) {
+      setSaveInfo({ tipo: 'ok', texto: 'No hay más acciones para deshacer' });
+      return;
+    }
+    const previousState = undoStackRef.current.pop()!;
+    redoStackRef.current.push(JSON.parse(JSON.stringify(diagramRef.current)));
+    setHistoryTick(t => t + 1);
+    handleUpdateDiagram(previousState, false);
+    setSaveInfo({ tipo: 'ok', texto: '↩ Deshecho (Ctrl+Z)' });
+  };
+
+  const handleRedo = () => {
+    if (redoStackRef.current.length === 0) {
+      setSaveInfo({ tipo: 'ok', texto: 'No hay más acciones para rehacer' });
+      return;
+    }
+    const nextState = redoStackRef.current.pop()!;
+    undoStackRef.current.push(JSON.parse(JSON.stringify(diagramRef.current)));
+    setHistoryTick(t => t + 1);
+    handleUpdateDiagram(nextState, false);
+    setSaveInfo({ tipo: 'ok', texto: '↪ Rehecho (Ctrl+Y)' });
+  };
+
+  const handleCopyClass = () => {
+    if (!selectedClassId) {
+      setSaveInfo({ tipo: 'ok', texto: 'Selecciona una clase para copiar (Ctrl+C)' });
+      return;
+    }
+    const target = diagram.classes.find(c => c.id === selectedClassId);
+    if (!target) return;
+    clipboardClassRef.current = JSON.parse(JSON.stringify(target));
+    setSaveInfo({ tipo: 'ok', texto: `Clase '${target.name}' copiada al portapapeles` });
+  };
+
+  const handlePasteClass = () => {
+    const source = clipboardClassRef.current;
+    if (!source) {
+      setSaveInfo({ tipo: 'ok', texto: 'El portapapeles está vacío. Copia una clase con Ctrl+C primero.' });
+      return;
+    }
+    const ts = Date.now();
+    const newId = `cls-copy-${ts}`;
+    const newName = `${source.name}Copia`;
+
+    const clone: ClaseUml = {
+      ...source,
+      id: newId,
+      name: newName,
+      position: {
+        x: Math.max(20, (source.position?.x || 100) + 40),
+        y: Math.max(20, (source.position?.y || 100) + 40)
+      },
+      attributes: (source.attributes || []).map((a, i) => ({ ...a, id: `attr-${ts}-${i}` })),
+      methods: (source.methods || []).map((m, i) => ({ ...m, id: `m-${ts}-${i}` }))
+    };
+
+    handleUpdateDiagram(prev => ({
+      ...prev,
+      classes: [...prev.classes, clone],
+      updatedAt: new Date().toISOString()
+    }));
+    setSelectedClassId(newId);
+    setSaveInfo({ tipo: 'ok', texto: `Clase '${clone.name}' pegada en el lienzo (Ctrl+V)` });
+  };
+
+  const handleDuplicateClass = () => {
+    if (!selectedClassId) {
+      setSaveInfo({ tipo: 'ok', texto: 'Selecciona una clase para duplicar (Ctrl+D)' });
+      return;
+    }
+    const target = diagram.classes.find(c => c.id === selectedClassId);
+    if (!target) return;
+    const ts = Date.now();
+    const newId = `cls-dup-${ts}`;
+    const clone: ClaseUml = {
+      ...target,
+      id: newId,
+      name: `${target.name}Copia`,
+      position: {
+        x: Math.max(20, (target.position?.x || 100) + 40),
+        y: Math.max(20, (target.position?.y || 100) + 40)
+      },
+      attributes: (target.attributes || []).map((a, i) => ({ ...a, id: `attr-${ts}-${i}` })),
+      methods: (target.methods || []).map((m, i) => ({ ...m, id: `m-${ts}-${i}` }))
+    };
+
+    handleUpdateDiagram(prev => ({
+      ...prev,
+      classes: [...prev.classes, clone],
+      updatedAt: new Date().toISOString()
+    }));
+    setSelectedClassId(newId);
+    setSaveInfo({ tipo: 'ok', texto: `Clase '${clone.name}' duplicada (Ctrl+D)` });
+  };
 
   // ───────────────── CU-01/CU-04 · Cargar el diagrama PROPIO del usuario al entrar ─────────────────
   // Si entra a una sala colaborativa como invitado, se sincroniza el diagrama de la sala y no el personal.
@@ -489,7 +653,22 @@ export const PaginaEstudioCanvas: React.FC<PaginaEstudioCanvasProps> = ({
         });
         // Si no somos el anfitrión y no abrimos un proyecto específico, pedir el diagrama oficial de la sala
         if (!currentSession.currentUser.isHost && !initialDiagram && !diagramId) {
-          cliente.publicar('solicitar_diagrama', {});
+          cliente.publicar('solicitar_diagrama', {
+            usuario: currentSession.currentUser
+          });
+          if (habitacionId && habitacionId !== 'LOCAL-MODE') {
+            obtenerDiagramaSala(habitacionId)
+              .then((datosSala: any) => {
+                if (datosSala && datosSala.classes && datosSala.classes.length > 0) {
+                  const modelo = diagramaDesdeBackend(datosSala);
+                  esActualizacionRemotaRef.current = true;
+                  ultimaAplicacionRemotaRef.current = Date.now();
+                  diagramRef.current = modelo;
+                  setDiagram(modelo);
+                }
+              })
+              .catch(() => {});
+          }
         } else {
           // Si somos el anfitrión, respaldar de inmediato el diagrama oficial en la memoria del backend
           if (habitacionId && habitacionId !== 'LOCAL-MODE' && diagramRef.current.classes?.length > 0) {
@@ -600,8 +779,24 @@ export const PaginaEstudioCanvas: React.FC<PaginaEstudioCanvasProps> = ({
     URL.revokeObjectURL(url);
   };
 
+  /** Exportar XMI 1.1 nativo de Sparx para Enterprise Architect (clases + diagrama con layout). */
+  const handleExportarEA = () => {
+    const xml = exportarXmiEnterpriseArchitect(diagram);
+    const blob = new Blob([xml], { type: 'application/xml;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `${diagram.title.toLowerCase().replace(/\s+/g, '_')}_enterprise_architect.xmi`;
+    link.click();
+    URL.revokeObjectURL(url);
+    setSaveInfo({
+      tipo: 'ok',
+      texto: 'XMI para Enterprise Architect descargado: en EA usa Herramientas → Importar/Exportar → Importar paquete desde XMI.'
+    });
+  };
+
   const handleAddClass = (newClass: ClaseUml) => {
-    setDiagram(prev => ({
+    handleUpdateDiagram(prev => ({
       ...prev,
       classes: [...prev.classes, newClass],
       updatedAt: new Date().toISOString()
@@ -610,7 +805,7 @@ export const PaginaEstudioCanvas: React.FC<PaginaEstudioCanvasProps> = ({
   };
 
   const handleDeleteClass = (classId: string) => {
-    setDiagram(prev => ({
+    handleUpdateDiagram(prev => ({
       ...prev,
       classes: prev.classes.filter(c => c.id !== classId),
       relations: prev.relations.filter(r => r.sourceClassId !== classId && r.targetClassId !== classId),
@@ -622,7 +817,7 @@ export const PaginaEstudioCanvas: React.FC<PaginaEstudioCanvasProps> = ({
   };
 
   const handleAddAttribute = (classId: string, attribute: AtributoUml) => {
-    setDiagram(prev => ({
+    handleUpdateDiagram(prev => ({
       ...prev,
       classes: prev.classes.map(cls => {
         if (cls.id === classId || cls.name.toLowerCase() === classId.toLowerCase()) {
@@ -638,7 +833,7 @@ export const PaginaEstudioCanvas: React.FC<PaginaEstudioCanvasProps> = ({
   };
 
   const handleDeleteAttribute = (classId: string, attrId: string) => {
-    setDiagram(prev => ({
+    handleUpdateDiagram(prev => ({
       ...prev,
       classes: prev.classes.map(cls => {
         if (cls.id === classId) {
@@ -654,7 +849,7 @@ export const PaginaEstudioCanvas: React.FC<PaginaEstudioCanvasProps> = ({
   };
 
   const handleAddMethod = (classId: string, method: MetodoUml) => {
-    setDiagram(prev => ({
+    handleUpdateDiagram(prev => ({
       ...prev,
       classes: prev.classes.map(cls => {
         if (cls.id === classId) {
@@ -670,7 +865,7 @@ export const PaginaEstudioCanvas: React.FC<PaginaEstudioCanvasProps> = ({
   };
 
   const handleDeleteMethod = (classId: string, methodId: string) => {
-    setDiagram(prev => ({
+    handleUpdateDiagram(prev => ({
       ...prev,
       classes: prev.classes.map(cls => {
         if (cls.id === classId) {
@@ -686,7 +881,7 @@ export const PaginaEstudioCanvas: React.FC<PaginaEstudioCanvasProps> = ({
   };
 
   const handleAddRelation = (relation: RelacionUml) => {
-    setDiagram(prev => ({
+    handleUpdateDiagram(prev => ({
       ...prev,
       relations: [...prev.relations, relation],
       updatedAt: new Date().toISOString()
@@ -694,7 +889,7 @@ export const PaginaEstudioCanvas: React.FC<PaginaEstudioCanvasProps> = ({
   };
 
   const handleDeleteRelation = (relationId: string) => {
-    setDiagram(prev => ({
+    handleUpdateDiagram(prev => ({
       ...prev,
       relations: prev.relations.filter(r => r.id !== relationId),
       updatedAt: new Date().toISOString()
@@ -716,8 +911,37 @@ export const PaginaEstudioCanvas: React.FC<PaginaEstudioCanvasProps> = ({
   };
 
   const handleWhiteboardImport = (importedDiagram: ModeloDiagrama) => {
-    setDiagram(importedDiagram);
+    const rawClasses = importedDiagram.classes || [];
+    const rawRelations = importedDiagram.relations || [];
+
+    // Garantizar que la digitalización de pizarra respete la arquitectura universal 3FN / UML 2.5
+    const normalizado = normalizarDiagrama({
+      className: importedDiagram.title || 'Diagrama Pizarra IA',
+      classes: rawClasses,
+      relations: rawRelations.map(r => ({
+        sourceName: rawClasses.find(c => c.id === r.sourceClassId)?.name || r.sourceClassId,
+        targetName: rawClasses.find(c => c.id === r.targetClassId)?.name || r.targetClassId,
+        type: r.type,
+        label: r.label,
+        sourceMultiplicity: r.sourceMultiplicity,
+        targetMultiplicity: r.targetMultiplicity,
+        associationClassName: r.associationClassId ? rawClasses.find(c => c.id === r.associationClassId)?.name : undefined
+      }))
+    }, []);
+
+    const diagramaFinal: ModeloDiagrama = {
+      ...importedDiagram,
+      classes: normalizado?.classes || rawClasses,
+      relations: normalizado?.relations || rawRelations,
+      updatedAt: new Date().toISOString()
+    };
+
+    handleUpdateDiagram(diagramaFinal);
     setShowWhiteboardModal(false);
+    setSaveInfo({
+      tipo: 'ok',
+      texto: `Diagrama de pizarra digitalizado y normalizado en UML 2.5 (3FN): ${diagramaFinal.classes.length} clases y ${diagramaFinal.relations.length} relaciones.`
+    });
   };
 
   const handleCopySharePin = () => {
@@ -867,7 +1091,7 @@ export const PaginaEstudioCanvas: React.FC<PaginaEstudioCanvasProps> = ({
         return prev;
       }
 
-      setSaveInfo({ tipo: 'ok', texto: `⚡ ${metodosAInsertar.length} método(s) de negocio autocompletados en ${cls.name}.` });
+      setSaveInfo({ tipo: 'ok', texto: `${metodosAInsertar.length} método(s) de negocio autocompletados en ${cls.name}.` });
 
       return {
         ...prev,
@@ -922,6 +1146,73 @@ export const PaginaEstudioCanvas: React.FC<PaginaEstudioCanvasProps> = ({
       setGuardando(false);
     }
   };
+
+  const handleSaveShortcut = () => {
+    manejarGuardarEnNube();
+    setSaveInfo({ tipo: 'ok', texto: 'Diagrama guardado en la nube y persistencia local (Ctrl+S)' });
+  };
+
+  // Atajos de teclado globales a nivel de ventana para el estudio ArchAI
+  useEffect(() => {
+    const handleGlobalKeyDown = (e: KeyboardEvent) => {
+      const activeTag = (document.activeElement as HTMLElement)?.tagName;
+      const isInputFocused = ['INPUT', 'TEXTAREA', 'SELECT'].includes(activeTag);
+
+      // Guardar con Ctrl+S (funciona siempre, incluso dentro de inputs)
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') {
+        e.preventDefault();
+        handleSaveShortcut();
+        return;
+      }
+
+      if (isInputFocused) return;
+
+      // Deshacer con Ctrl+Z (sin Shift)
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z' && !e.shiftKey) {
+        e.preventDefault();
+        handleUndo();
+        return;
+      }
+
+      // Rehacer con Ctrl+Y o Ctrl+Shift+Z
+      if (
+        ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'y') ||
+        ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key.toLowerCase() === 'z')
+      ) {
+        e.preventDefault();
+        handleRedo();
+        return;
+      }
+
+      // Copiar con Ctrl+C
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'c') {
+        handleCopyClass();
+        return;
+      }
+
+      // Pegar con Ctrl+V
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'v') {
+        handlePasteClass();
+        return;
+      }
+
+      // Duplicar con Ctrl+D
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'd') {
+        e.preventDefault();
+        handleDuplicateClass();
+        return;
+      }
+
+      // Ayuda de atajos con F1 o ?
+      if (e.key === 'F1' || e.key === '?') {
+        e.preventDefault();
+        setShowShortcutsModal(prev => !prev);
+      }
+    };
+
+    window.addEventListener('keydown', handleGlobalKeyDown);
+    return () => window.removeEventListener('keydown', handleGlobalKeyDown);
+  }, [selectedClassId, diagram]);
 
   /** CU-05 · Listar versiones del diagrama guardado. */
   const cargarVersiones = async () => {
@@ -1032,6 +1323,7 @@ export const PaginaEstudioCanvas: React.FC<PaginaEstudioCanvasProps> = ({
           onToggleTheme={handleToggleTheme}
           onOpenProjects={onOpenProjects}
           onExportXmi={handleExportXmi}
+          onExportarEA={handleExportarEA}
           onToggleCodeDock={() => setIsCodeDockOpen(prev => !prev)}
           isCodeDockOpen={isCodeDockOpen}
           onShare={() => setShowShareModal(true)}
@@ -1046,6 +1338,11 @@ export const PaginaEstudioCanvas: React.FC<PaginaEstudioCanvasProps> = ({
           onQuickRoleChange={handleRoleChange}
           onOpenTeamModal={() => setIsTeamModalOpen(true)}
           onOpenMaturityAudit={() => setIsAiAssistantOpen(true)}
+          onUndo={handleUndo}
+          onRedo={handleRedo}
+          canUndo={canUndo}
+          canRedo={canRedo}
+          onAbrirAtajos={() => setShowShortcutsModal(true)}
         />
 
         {/* Espacio de Trabajo Central (Lienzo + Paneles Flotantes + Dock) */}
@@ -1064,7 +1361,7 @@ export const PaginaEstudioCanvas: React.FC<PaginaEstudioCanvasProps> = ({
             session={currentSession}
             selectedClassId={selectedClassId}
             onSelectClass={setSelectedClassId}
-            onUpdateDiagram={setDiagram}
+            onUpdateDiagram={handleUpdateDiagram}
             onAddClass={handleAddClass}
             onDeleteClass={handleDeleteClass}
             onAddAttribute={handleAddAttribute}
@@ -1086,6 +1383,15 @@ export const PaginaEstudioCanvas: React.FC<PaginaEstudioCanvasProps> = ({
             userPermissions={userPermissions}
             userRole={currentRole}
             onAutoCompletarClase={handleAutoCompletarClase}
+            onUndo={handleUndo}
+            onRedo={handleRedo}
+            canUndo={canUndo}
+            canRedo={canRedo}
+            onSaveShortcut={handleSaveShortcut}
+            onOpenShortcutsModal={() => setShowShortcutsModal(true)}
+            onCopyClass={handleCopyClass}
+            onPasteClass={handlePasteClass}
+            onDuplicateClass={handleDuplicateClass}
           />
 
           {/* 3. Panel Flotante de Estructura del Proyecto */}
@@ -1095,7 +1401,7 @@ export const PaginaEstudioCanvas: React.FC<PaginaEstudioCanvasProps> = ({
             onSelectClass={setSelectedClassId}
             usuarioId={currentSession.currentUser.id}
             onCargarDiagrama={(d) => {
-              setDiagram(d);
+              handleUpdateDiagram(d);
               setSaveInfo({ tipo: 'ok', texto: `Diagrama cargado: ${d.title}` });
             }}
             onNotificar={(texto, tipo = 'ok') => setSaveInfo({ tipo, texto })}
@@ -1111,6 +1417,10 @@ export const PaginaEstudioCanvas: React.FC<PaginaEstudioCanvasProps> = ({
               onAddAttribute={handleAddAttribute}
               onAddMethod={handleAddMethod}
               onAddRelation={handleAddRelation}
+              onUpdateDiagram={(d) => {
+                handleUpdateDiagram(d);
+                setSaveInfo({ tipo: 'ok', texto: `Diagrama actualizado por el agente IA: ${d.classes.length} clases, ${d.relations.length} relaciones.` });
+              }}
               onOpenWhiteboard={() => setShowWhiteboardModal(true)}
               onOpenCodeDock={() => setIsCodeDockOpen(true)}
               onClose={() => setIsAiAssistantOpen(false)}
@@ -1124,7 +1434,7 @@ export const PaginaEstudioCanvas: React.FC<PaginaEstudioCanvasProps> = ({
             diagram={diagram}
             onCustomCodeChange={setCustomCodeMap}
             onImportarDiagrama={(d) => {
-              setDiagram(d);
+              handleUpdateDiagram(d);
               setSaveInfo({ tipo: 'ok', texto: 'Diagrama reconstruido desde XMI (CU-13).' });
             }}
           />
@@ -1156,10 +1466,10 @@ export const PaginaEstudioCanvas: React.FC<PaginaEstudioCanvasProps> = ({
                   gap: '8px'
                 }}>
                   {estadoColab === 'conectado'
-                    ? '🟢 Edición en vivo: cada cambio del lienzo se transmite a los participantes de la sala.'
+                    ? <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}><Radio size={12} color="#10B981" /> Edición en vivo: cada cambio del lienzo se transmite a los participantes de la sala.</span>
                     : estadoColab === 'conectando'
-                      ? '🟡 Conectando al broker STOMP /ws-stomp…'
-                      : '⚪ Backend sin conexión: solo modo local (sin sincronización).'}
+                      ? <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}><Radio size={12} color="#F59E0B" /> Conectando al broker STOMP /ws-stomp…</span>
+                      : <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}><Radio size={12} color="var(--text-muted)" /> Backend sin conexión: solo modo local (sin sincronización).</span>}
                   <span style={{ marginLeft: 'auto', fontSize: '0.7rem', color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>
                     {currentSession.roomId}
                   </span>
@@ -1184,10 +1494,10 @@ export const PaginaEstudioCanvas: React.FC<PaginaEstudioCanvasProps> = ({
                     <span style={{ color: 'var(--text-secondary)', fontWeight: 600 }}>Tema visual</span>
                     <div style={{ display: 'flex', gap: '6px' }}>
                       <button onClick={() => setTheme('light')} className="btn-studio-glass" style={{ padding: '4px 12px', fontSize: '0.72rem', fontWeight: 700, opacity: theme === 'light' ? 1 : 0.6 }}>
-                        ☀️ Claro
+                        <Sun size={12} color="var(--accent-primary)" style={{ flexShrink: 0 }} /> Claro
                       </button>
                       <button onClick={() => setTheme('dark')} className="btn-studio-glass" style={{ padding: '4px 12px', fontSize: '0.72rem', fontWeight: 700, opacity: theme === 'dark' ? 1 : 0.6 }}>
-                        🌙 Oscuro
+                        <Moon size={12} color="#38bdf8" style={{ flexShrink: 0 }} /> Oscuro
                       </button>
                     </div>
                   </div>
@@ -1247,56 +1557,63 @@ export const PaginaEstudioCanvas: React.FC<PaginaEstudioCanvasProps> = ({
 
       {/* Modal de Compartir PIN */}
       {showShareModal && (
-        <div className="glass-dialog-overlay">
-          <div className="glass-dialog-card" style={{
-            maxWidth: '430px',
-            width: '90%'
-          }}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <Share2 size={20} color="var(--accent-cyan)" />
-                <h3 style={{
-                  margin: 0,
-                  fontSize: '1.1rem',
-                  fontWeight: 800,
-                  fontFamily: 'var(--font-heading)',
-                  color: 'var(--text-primary)'
-                }}>
-                  Compartir Sesión Colaborativa
-                </h3>
-              </div>
-              <button
-                onClick={() => setShowShareModal(false)}
-                style={{
-                  background: 'transparent',
-                  border: 'none',
-                  color: 'var(--text-muted)',
-                  cursor: 'pointer',
-                  padding: '4px'
-                }}
-              >
-                <X size={18} />
-              </button>
-            </div>
-
-            <p style={{ margin: 0, fontSize: '0.85rem', color: 'var(--text-secondary)', lineHeight: '1.5' }}>
-              Invita a otros ingenieros a conectarse en tiempo real compartiendo el PIN de la sala:
+        <GlassModal
+          isOpen={showShareModal}
+          onClose={() => setShowShareModal(false)}
+          title="Compartir Sesión Colaborativa"
+          subtitle="Invita a otros ingenieros a colaborar en tiempo real con este PIN de sala"
+          icon={<Share2 size={20} />}
+          iconColor="#e8c39e"
+          iconBg="rgba(232, 195, 158, 0.15)"
+          maxWidth="460px"
+        >
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+            <p style={{ margin: 0, fontSize: '0.82rem', color: 'var(--text-secondary, #8892b0)', lineHeight: '1.5' }}>
+              Cualquier miembro de tu equipo con acceso a la red puede conectarse inmediatamente a este lienzo utilizando el código de sala activo.
             </p>
 
+            {/* Showcase PIN Container */}
             <div style={{
+              background: 'linear-gradient(135deg, rgba(23, 26, 74, 0.75) 0%, rgba(47, 44, 121, 0.45) 100%)',
+              border: '1px solid rgba(232, 195, 158, 0.28)',
+              borderRadius: '14px',
+              padding: '16px 18px',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'space-between',
-              background: 'var(--modal-pin-box-bg)',
-              border: '1px solid var(--modal-pin-box-border)',
-              borderRadius: '12px',
-              padding: '12px 16px'
+              gap: '12px',
+              boxShadow: '0 4px 16px rgba(0, 0, 0, 0.25), inset 0 1px 0 rgba(245, 225, 206, 0.1)'
             }}>
               <div>
-                <div style={{ fontSize: '0.70rem', color: 'var(--text-muted)', fontWeight: 700, textTransform: 'uppercase' }}>
+                <div style={{
+                  fontSize: '0.68rem',
+                  color: '#e8c39e',
+                  fontWeight: 700,
+                  textTransform: 'uppercase',
+                  letterSpacing: '0.08em',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px'
+                }}>
+                  <span style={{
+                    width: '6px',
+                    height: '6px',
+                    borderRadius: '50%',
+                    backgroundColor: '#10b981',
+                    boxShadow: '0 0 8px #10b981',
+                    display: 'inline-block'
+                  }} />
                   Código de Sala (PIN)
                 </div>
-                <div style={{ fontSize: '1.4rem', fontWeight: 900, fontFamily: 'var(--font-mono)', color: 'var(--modal-pin-box-color)', letterSpacing: '0.08em' }}>
+                <div style={{
+                  fontSize: '1.5rem',
+                  fontWeight: 900,
+                  fontFamily: 'var(--font-mono, monospace)',
+                  color: '#f5e1ce',
+                  letterSpacing: '0.1em',
+                  marginTop: '4px',
+                  textShadow: '0 0 12px rgba(245, 225, 206, 0.25)'
+                }}>
                   {currentSession.roomId}
                 </div>
               </div>
@@ -1304,24 +1621,105 @@ export const PaginaEstudioCanvas: React.FC<PaginaEstudioCanvasProps> = ({
               <button
                 onClick={handleCopySharePin}
                 className="btn-studio-primary"
-                style={{ padding: '8px 16px', fontSize: '0.82rem', display: 'flex', alignItems: 'center', gap: '6px' }}
+                style={{
+                  padding: '9px 16px',
+                  fontSize: '0.82rem',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  borderRadius: '10px',
+                  fontWeight: 700,
+                  cursor: 'pointer'
+                }}
               >
-                {shareCopied ? <Check size={14} /> : <Copy size={14} />}
+                {shareCopied ? <Check size={15} /> : <Copy size={15} />}
                 <span>{shareCopied ? '¡Copiado!' : 'Copiar PIN'}</span>
               </button>
             </div>
 
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', fontSize: '0.78rem', color: 'var(--text-secondary)' }}>
-              <div>• <strong>Anfitrión:</strong> <span style={{ color: 'var(--text-primary)' }}>{currentSession.hostName}</span></div>
-              <div>• <strong>Participantes conectados:</strong> <span style={{ color: 'var(--text-primary)' }}>{currentSession.participants.length}</span></div>
+            {/* Badges / Stats Container */}
+            <div style={{
+              display: 'grid',
+              gridTemplateColumns: '1fr 1fr',
+              gap: '10px'
+            }}>
+              <div style={{
+                background: 'rgba(255, 255, 255, 0.03)',
+                border: '1px solid rgba(245, 225, 206, 0.1)',
+                borderRadius: '10px',
+                padding: '10px 12px',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '10px'
+              }}>
+                <div style={{
+                  width: '30px',
+                  height: '30px',
+                  borderRadius: '8px',
+                  background: 'rgba(232, 195, 158, 0.12)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  color: '#e8c39e',
+                  flexShrink: 0
+                }}>
+                  <UserCheck size={16} />
+                </div>
+                <div style={{ minWidth: 0 }}>
+                  <div style={{ fontSize: '0.68rem', color: 'var(--text-muted, #8892b0)', textTransform: 'uppercase', fontWeight: 600 }}>
+                    Anfitrión
+                  </div>
+                  <div style={{ fontSize: '0.82rem', color: 'var(--text-primary, #f5e1ce)', fontWeight: 700, textOverflow: 'ellipsis', overflow: 'hidden', whiteSpace: 'nowrap' }}>
+                    {currentSession.hostName}
+                  </div>
+                </div>
+              </div>
+
+              <div style={{
+                background: 'rgba(255, 255, 255, 0.03)',
+                border: '1px solid rgba(245, 225, 206, 0.1)',
+                borderRadius: '10px',
+                padding: '10px 12px',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '10px'
+              }}>
+                <div style={{
+                  width: '30px',
+                  height: '30px',
+                  borderRadius: '8px',
+                  background: 'rgba(16, 185, 129, 0.12)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  color: '#10b981',
+                  flexShrink: 0
+                }}>
+                  <Users size={16} />
+                </div>
+                <div style={{ minWidth: 0 }}>
+                  <div style={{ fontSize: '0.68rem', color: 'var(--text-muted, #8892b0)', textTransform: 'uppercase', fontWeight: 600 }}>
+                    Conectados
+                  </div>
+                  <div style={{ fontSize: '0.82rem', color: 'var(--text-primary, #f5e1ce)', fontWeight: 700 }}>
+                    {currentSession.participants.length} {currentSession.participants.length === 1 ? 'ingeniero' : 'ingenieros'}
+                  </div>
+                </div>
+              </div>
             </div>
 
             {/* CU-03 · Cambiar o conectarse a otra sala en caliente */}
-            <div style={{ borderTop: '1px solid var(--glass-border-color)', paddingTop: '14px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
-              <div style={{ fontSize: '0.80rem', fontWeight: 700, color: 'var(--text-primary)' }}>
-                Cambiar de sala o unirse al equipo:
+            <div style={{
+              borderTop: '1px solid rgba(245, 225, 206, 0.1)',
+              paddingTop: '14px',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '10px'
+            }}>
+              <div style={{ fontSize: '0.78rem', fontWeight: 700, color: 'var(--text-primary, #f5e1ce)' }}>
+                Cambiar de sala o unirse a otro equipo:
               </div>
-              <div style={{ display: 'flex', gap: '6px' }}>
+              <div style={{ display: 'flex', gap: '8px' }}>
                 <input
                   type="text"
                   placeholder="Ej: ARC-123456"
@@ -1329,21 +1727,29 @@ export const PaginaEstudioCanvas: React.FC<PaginaEstudioCanvasProps> = ({
                   onChange={e => setPinCambioSala(e.target.value.toUpperCase())}
                   style={{
                     flex: 1,
-                    background: 'var(--glass-surface)',
-                    border: '1px solid var(--glass-border-color)',
-                    borderRadius: '8px',
-                    padding: '8px 12px',
-                    fontSize: '0.86rem',
-                    fontFamily: 'var(--font-mono)',
-                    color: 'var(--text-primary)',
-                    outline: 'none'
+                    background: 'rgba(23, 26, 74, 0.45)',
+                    border: '1px solid rgba(245, 225, 206, 0.18)',
+                    borderRadius: '10px',
+                    padding: '9px 12px',
+                    fontSize: '0.84rem',
+                    fontFamily: 'var(--font-mono, monospace)',
+                    color: 'var(--text-primary, #f5e1ce)',
+                    outline: 'none',
+                    letterSpacing: '0.04em'
                   }}
                 />
                 <button
                   onClick={() => manejarCambiarSala(pinCambioSala)}
                   disabled={!pinCambioSala.trim()}
                   className="btn-studio-primary"
-                  style={{ padding: '8px 14px', fontSize: '0.78rem', whiteSpace: 'nowrap', opacity: pinCambioSala.trim() ? 1 : 0.5 }}
+                  style={{
+                    padding: '9px 16px',
+                    fontSize: '0.8rem',
+                    whiteSpace: 'nowrap',
+                    opacity: pinCambioSala.trim() ? 1 : 0.5,
+                    cursor: pinCambioSala.trim() ? 'pointer' : 'not-allowed',
+                    borderRadius: '10px'
+                  }}
                 >
                   Conectar
                 </button>
@@ -1354,22 +1760,25 @@ export const PaginaEstudioCanvas: React.FC<PaginaEstudioCanvasProps> = ({
                 onClick={() => manejarCambiarSala('ARC-GRUPO04')}
                 className="btn-studio-glass"
                 style={{
-                  padding: '8px 12px',
+                  padding: '10px 14px',
                   fontSize: '0.76rem',
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',
-                  gap: '6px',
+                  gap: '8px',
                   color: '#f5e1ce',
-                  border: '1px solid #171a4a',
-                  background: '#2f2c79'
+                  border: '1px solid rgba(232, 195, 158, 0.25)',
+                  background: 'rgba(47, 44, 121, 0.55)',
+                  borderRadius: '10px',
+                  cursor: 'pointer',
+                  transition: 'all 0.2s ease'
                 }}
               >
-                <span>⚡ Unirse a sala de prueba común: <strong>ARC-GRUPO04</strong></span>
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Zap size={12} color="var(--accent-primary)" /> Unirse a sala de prueba común: <strong style={{ color: '#e8c39e' }}>ARC-GRUPO04</strong></span>
               </button>
             </div>
           </div>
-        </div>
+        </GlassModal>
       )}
 
       {/* CU-05 · Modal Guardar en la Nube */}
@@ -1408,6 +1817,11 @@ export const PaginaEstudioCanvas: React.FC<PaginaEstudioCanvasProps> = ({
         />
       )}
 
+      {/* Modal de Atajos de Teclado (F1 o ?) */}
+      {showShortcutsModal && (
+        <ModalAtajosTeclado onClose={() => setShowShortcutsModal(false)} />
+      )}
+
       {/* Toast informativo (CU-01 / CU-05 / CU-09) */}
       {saveInfo && (
         <div
@@ -1434,7 +1848,7 @@ export const PaginaEstudioCanvas: React.FC<PaginaEstudioCanvasProps> = ({
             transition: 'right 0.25s ease'
           }}
         >
-          <span>{saveInfo.tipo === 'ok' ? '✅' : '⚠️'}</span>
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>{saveInfo.tipo === 'ok' ? <CheckCircle2 size={14} color="#10B981" style={{ flexShrink: 0 }} /> : <AlertTriangle size={14} color="#F59E0B" style={{ flexShrink: 0 }} />}</span>
           <span style={{ flex: 1 }}>{saveInfo.texto}</span>
           <button
             onClick={() => setSaveInfo(null)}
@@ -1469,66 +1883,96 @@ const ModalGuardarNube: React.FC<ModalGuardarNubeProps> = ({
   onAbrirVersiones,
   onCerrar
 }) => (
-  <div className="glass-dialog-overlay">
-    <div className="glass-dialog-card" style={{
-      maxWidth: '440px',
-      width: '90%'
-    }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-          <Save size={20} color="var(--accent-emerald)" />
-          <h3 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 800, fontFamily: 'var(--font-heading)', color: 'var(--text-primary)' }}>
-            Guardar en la Nube
-          </h3>
-        </div>
-        <button onClick={onCerrar} style={{ background: 'transparent', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', padding: '4px' }}>
-          <X size={18} />
-        </button>
-      </div>
-
-      <p style={{ margin: 0, fontSize: '0.85rem', color: 'var(--text-secondary)', lineHeight: '1.5' }}>
-        <strong>Diagrama:</strong> <span style={{ color: 'var(--text-primary)' }}>{tituloDiagrama}</span>
-      </p>
-
-      {!online && (
-        <div style={{
-          padding: '10px 12px',
-          borderRadius: '8px',
-          fontSize: '0.78rem',
-          fontWeight: 600,
-          color: '#e8c39e',
-          background: 'rgba(232, 195, 158, 0.15)',
-          border: '1px solid rgba(232, 195, 158, 0.35)',
-          display: 'flex',
-          gap: '6px',
-          alignItems: 'center'
-        }}>
-          <CloudOff size={14} /> Modo offline activo (CU-09): el guardado se encola y se sincroniza al reconectar.
-        </div>
-      )}
-
-      {guardadoEn && (
-        <div style={{ fontSize: '0.74rem', color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>
-          Último guardado en nube: <strong>{guardadoEn}</strong>
-        </div>
-      )}
-
-      <div style={{ display: 'flex', gap: '10px' }}>
+  <GlassModal
+    isOpen={true}
+    onClose={onCerrar}
+    title="Guardar en la Nube"
+    subtitle="Persistencia remota y sincronización automática en backend"
+    icon={<Save size={20} />}
+    iconColor="#10b981"
+    iconBg="rgba(16, 185, 129, 0.15)"
+    maxWidth="460px"
+    footer={
+      <div style={{ display: 'flex', gap: '10px', width: '100%' }}>
         <button
           onClick={onGuardar}
           disabled={guardando}
           className="btn-studio-primary"
-          style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px', opacity: guardando ? 0.6 : 1 }}
+          style={{
+            flex: 1,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: '8px',
+            padding: '10px 16px',
+            fontSize: '0.84rem',
+            opacity: guardando ? 0.6 : 1,
+            borderRadius: '10px',
+            fontWeight: 700,
+            cursor: guardando ? 'wait' : 'pointer'
+          }}
         >
-          <Upload size={16} />
-          {guardando ? 'Guardando...' : 'Guardar ahora'}
+          {guardando ? <RefreshCw size={15} className="spin" /> : <Upload size={15} />}
+          {guardando ? 'Guardando en la nube...' : 'Guardar ahora'}
         </button>
-        <button onClick={onAbrirVersiones} className="btn-studio-glass" style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-          <History size={14} /> Ver versiones
+        <button
+          onClick={onAbrirVersiones}
+          className="btn-studio-glass"
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '6px',
+            padding: '10px 14px',
+            fontSize: '0.82rem',
+            borderRadius: '10px',
+            cursor: 'pointer'
+          }}
+        >
+          <History size={15} /> Ver versiones
         </button>
       </div>
+    }
+  >
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+      <div style={{
+        background: 'linear-gradient(135deg, rgba(23, 26, 74, 0.6) 0%, rgba(47, 44, 121, 0.35) 100%)',
+        border: '1px solid rgba(245, 225, 206, 0.12)',
+        borderRadius: '12px',
+        padding: '14px 16px'
+      }}>
+        <div style={{ fontSize: '0.7rem', color: '#e8c39e', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+          Diagrama activo
+        </div>
+        <div style={{ fontSize: '1rem', fontWeight: 800, color: 'var(--text-primary, #f5e1ce)', marginTop: '4px' }}>
+          {tituloDiagrama}
+        </div>
+        {guardadoEn && (
+          <div style={{ fontSize: '0.74rem', color: 'var(--text-muted, #8892b0)', fontFamily: 'var(--font-mono, monospace)', marginTop: '6px' }}>
+            Última sincronización: <strong style={{ color: 'var(--text-primary, #f5e1ce)' }}>{guardadoEn}</strong>
+          </div>
+        )}
+      </div>
+
+      {!online && (
+        <div style={{
+          padding: '12px 14px',
+          borderRadius: '12px',
+          fontSize: '0.8rem',
+          fontWeight: 600,
+          color: '#e8c39e',
+          background: 'rgba(232, 195, 158, 0.12)',
+          border: '1px solid rgba(232, 195, 158, 0.3)',
+          display: 'flex',
+          gap: '8px',
+          alignItems: 'center',
+          lineHeight: 1.4
+        }}>
+          <CloudOff size={16} style={{ flexShrink: 0 }} />
+          <span>Modo offline activo (CU-09): el guardado se encola localmente y se sincroniza al restablecer conexión con el backend.</span>
+        </div>
+      )}
     </div>
-  </div>
+  </GlassModal>
 );
 
 /* ───────────── CU-05 · Modal de Versiones ───────────── */
@@ -1552,43 +1996,54 @@ const ModalVersiones: React.FC<ModalVersionesProps> = ({
   const [descripcion, setDescripcion] = useState('');
 
   return (
-    <div className="glass-dialog-overlay">
-      <div className="glass-dialog-card" style={{
-        maxWidth: '520px',
-        width: '92%',
-        maxHeight: '82vh',
-        overflow: 'auto'
-      }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <History size={20} color="var(--accent-primary)" />
-            <h3 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 800, fontFamily: 'var(--font-heading)', color: 'var(--text-primary)' }}>
-              Historial de Versiones
-            </h3>
-          </div>
-          <button onClick={onCerrar} style={{ background: 'transparent', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', padding: '4px' }}>
-            <X size={18} />
-          </button>
-        </div>
-
+    <GlassModal
+      isOpen={true}
+      onClose={onCerrar}
+      title="Historial de Versiones"
+      subtitle="Snapshots inmutables del modelo arquitectónico (CU-05)"
+      icon={<History size={20} />}
+      iconColor="#e8c39e"
+      iconBg="rgba(232, 195, 158, 0.15)"
+      maxWidth="560px"
+      maxHeight="86vh"
+    >
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
         {!guardadoEn && (
-          <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
-            El diagrama aún no se ha guardado en la nube. Crea una versión para guardarlo y versionarlo automáticamente (CU-05).
+          <div style={{
+            fontSize: '0.78rem',
+            color: 'var(--text-muted, #8892b0)',
+            background: 'rgba(255, 255, 255, 0.03)',
+            padding: '10px 14px',
+            borderRadius: '10px',
+            border: '1px solid rgba(245, 225, 206, 0.1)'
+          }}>
+            El diagrama aún no se ha sincronizado en la nube. Crea una versión para fijar su estado actual.
           </div>
         )}
 
         {/* Formulario de nueva versión */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+        <div style={{
+          background: 'rgba(23, 26, 74, 0.45)',
+          border: '1px solid rgba(245, 225, 206, 0.12)',
+          borderRadius: '14px',
+          padding: '14px 16px',
+          display: 'flex',
+          flexDirection: 'column',
+          gap: '10px'
+        }}>
+          <div style={{ fontSize: '0.72rem', fontWeight: 700, color: '#e8c39e', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+            Guardar nuevo snapshot
+          </div>
           <input
             value={etiqueta}
             onChange={e => setEtiqueta(e.target.value)}
             placeholder="Etiqueta de la versión (ej. v1.2-clases-finales)"
             style={{
-              padding: '10px 12px',
+              padding: '9px 12px',
               borderRadius: '10px',
-              border: '1px solid var(--glass-border-color)',
-              background: 'var(--glass-surface)',
-              color: 'var(--text-primary)',
+              border: '1px solid rgba(245, 225, 206, 0.18)',
+              background: 'rgba(255, 255, 255, 0.04)',
+              color: 'var(--text-primary, #f5e1ce)',
               fontSize: '0.82rem',
               outline: 'none'
             }}
@@ -1598,11 +2053,11 @@ const ModalVersiones: React.FC<ModalVersionesProps> = ({
             onChange={e => setDescripcion(e.target.value)}
             placeholder="Descripción del cambio (opcional)"
             style={{
-              padding: '10px 12px',
+              padding: '9px 12px',
               borderRadius: '10px',
-              border: '1px solid var(--glass-border-color)',
-              background: 'var(--glass-surface)',
-              color: 'var(--text-primary)',
+              border: '1px solid rgba(245, 225, 206, 0.18)',
+              background: 'rgba(255, 255, 255, 0.04)',
+              color: 'var(--text-primary, #f5e1ce)',
               fontSize: '0.82rem',
               outline: 'none'
             }}
@@ -1614,7 +2069,17 @@ const ModalVersiones: React.FC<ModalVersionesProps> = ({
               setDescripcion('');
             }}
             className="btn-studio-primary"
-            style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: '6px',
+              padding: '9px 14px',
+              fontSize: '0.82rem',
+              borderRadius: '10px',
+              fontWeight: 700,
+              cursor: 'pointer'
+            }}
           >
             <Upload size={15} /> Crear versión
           </button>
@@ -1622,11 +2087,23 @@ const ModalVersiones: React.FC<ModalVersionesProps> = ({
 
         {/* Lista de versiones */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+          <div style={{ fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-muted, #8892b0)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+            Versiones registradas ({versiones.length})
+          </div>
+
           {versiones.length === 0 && (
-            <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', textAlign: 'center', padding: '12px' }}>
+            <div style={{
+              fontSize: '0.8rem',
+              color: 'var(--text-muted, #8892b0)',
+              textAlign: 'center',
+              padding: '24px 16px',
+              border: '1px dashed rgba(245, 225, 206, 0.15)',
+              borderRadius: '12px'
+            }}>
               Sin versiones registradas todavía.
             </div>
           )}
+
           {versiones.map(v => (
             <div
               key={v.id}
@@ -1634,37 +2111,56 @@ const ModalVersiones: React.FC<ModalVersionesProps> = ({
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'space-between',
-                gap: '10px',
-                padding: '10px 12px',
-                borderRadius: '10px',
-                border: '1px solid var(--glass-border-color)',
-                background: 'var(--glass-surface)'
+                gap: '12px',
+                padding: '12px 14px',
+                borderRadius: '12px',
+                border: '1px solid rgba(245, 225, 206, 0.12)',
+                background: 'rgba(255, 255, 255, 0.03)',
+                transition: 'all 0.2s ease'
               }}
             >
-              <div style={{ minWidth: 0 }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <div style={{ minWidth: 0, flex: 1 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                   <span style={{
-                    background: 'var(--accent-primary)',
-                    color: '#fff',
+                    background: 'rgba(232, 195, 158, 0.2)',
+                    color: '#e8c39e',
+                    border: '1px solid rgba(232, 195, 158, 0.35)',
                     borderRadius: '6px',
-                    padding: '1px 6px',
-                    fontSize: '0.66rem',
-                    fontWeight: 800
+                    padding: '2px 7px',
+                    fontSize: '0.7rem',
+                    fontWeight: 800,
+                    fontFamily: 'var(--font-mono, monospace)'
                   }}>
                     v{v.numeroVersion}
                   </span>
-                  <span style={{ fontSize: '0.84rem', fontWeight: 700, color: 'var(--text-primary)' }}>
+                  <span style={{ fontSize: '0.86rem', fontWeight: 700, color: 'var(--text-primary, #f5e1ce)' }}>
                     {v.etiqueta}
                   </span>
                 </div>
-                <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: '2px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                <div style={{
+                  fontSize: '0.72rem',
+                  color: 'var(--text-muted, #8892b0)',
+                  marginTop: '4px',
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                  whiteSpace: 'nowrap'
+                }}>
                   {v.descripcionCambio || '—'} · {v.autorNombre || 'anónimo'}
                 </div>
               </div>
               <button
                 onClick={() => onRestaurar(v.id)}
                 className="btn-studio-glass"
-                style={{ display: 'flex', alignItems: 'center', gap: '5px', fontSize: '0.74rem', padding: '6px 10px', flexShrink: 0 }}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  fontSize: '0.76rem',
+                  padding: '7px 12px',
+                  flexShrink: 0,
+                  borderRadius: '8px',
+                  cursor: 'pointer'
+                }}
                 title="Restaurar esta versión en el lienzo"
               >
                 <RotateCcw size={13} /> Restaurar
@@ -1673,7 +2169,7 @@ const ModalVersiones: React.FC<ModalVersionesProps> = ({
           ))}
         </div>
       </div>
-    </div>
+    </GlassModal>
   );
 };
 
@@ -1702,126 +2198,135 @@ const ModalPerfilUsuario: React.FC<ModalPerfilUsuarioProps> = ({ usuario, onGuar
   const [color, setColor] = useState(usuario.avatarColor || COLORES_AVATAR[0]);
 
   return (
-    <div className="glass-dialog-overlay">
-      <div className="glass-dialog-card" style={{
-        maxWidth: '440px',
-        width: '90%'
-      }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <UserCircle size={20} color="var(--accent-primary)" />
-            <h3 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 800, fontFamily: 'var(--font-heading)', color: 'var(--text-primary)' }}>
-              Mi Perfil
-            </h3>
-          </div>
-          <button onClick={onCerrar} style={{ background: 'transparent', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', padding: '4px' }}>
-            <X size={18} />
-          </button>
-        </div>
-
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-          <label style={{ fontSize: '0.7rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase' }}>
-            Nombre completo
-            <input
-              value={nombre}
-              onChange={e => setNombre(e.target.value)}
-              style={{
-                width: '100%',
-                marginTop: '4px',
-                padding: '10px 12px',
-                borderRadius: '10px',
-                border: '1px solid var(--glass-border-color)',
-                background: 'var(--glass-surface)',
-                color: 'var(--text-primary)',
-                fontSize: '0.85rem',
-                outline: 'none',
-                boxSizing: 'border-box',
-                display: 'block'
-              }}
-            />
-          </label>
-
-          <label style={{ fontSize: '0.7rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase' }}>
-            Correo electrónico
-            <input
-              value={correo}
-              onChange={e => setCorreo(e.target.value)}
-              type="email"
-              style={{
-                width: '100%',
-                marginTop: '4px',
-                padding: '10px 12px',
-                borderRadius: '10px',
-                border: '1px solid var(--glass-border-color)',
-                background: 'var(--glass-surface)',
-                color: 'var(--text-primary)',
-                fontSize: '0.85rem',
-                outline: 'none',
-                boxSizing: 'border-box',
-                display: 'block'
-              }}
-            />
-          </label>
-
-          <label style={{ fontSize: '0.7rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase' }}>
-            Rol profesional
-            <select
-              value={rol}
-              onChange={e => setRol(e.target.value as RolUsuario)}
-              style={{
-                width: '100%',
-                marginTop: '4px',
-                padding: '10px 12px',
-                borderRadius: '10px',
-                border: '1px solid var(--glass-border-color)',
-                background: 'var(--glass-surface)',
-                color: 'var(--text-primary)',
-                fontSize: '0.85rem',
-                outline: 'none',
-                boxSizing: 'border-box',
-                display: 'block',
-                cursor: 'pointer'
-              }}
-            >
-              {ROLES_PERFIL.map(r => (
-                <option key={r} value={r} style={{ background: 'var(--glass-modal-bg)', color: 'var(--text-primary)' }}>
-                  {r}
-                </option>
-              ))}
-            </select>
-          </label>
-
-          <div style={{ fontSize: '0.7rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase' }}>
-            Color de avatar
-            <div style={{ display: 'flex', gap: '8px', marginTop: '6px' }}>
-              {COLORES_AVATAR.map(c => (
-                <button
-                  key={c}
-                  onClick={() => setColor(c)}
-                  style={{
-                    width: '26px',
-                    height: '26px',
-                    borderRadius: '8px',
-                    backgroundColor: c,
-                    border: color === c ? '3px solid var(--text-primary)' : '2px solid var(--glass-border-color)',
-                    cursor: 'pointer',
-                    boxShadow: color === c ? `0 0 10px ${c}` : 'none'
-                  }}
-                  title={c}
-                />
-              ))}
-            </div>
-          </div>
-        </div>
-
+    <GlassModal
+      isOpen={true}
+      onClose={onCerrar}
+      title="Mi Perfil de Ingeniero"
+      subtitle="Configura tu identidad colaborativa en tiempo real (CU-01)"
+      icon={<UserCircle size={20} />}
+      iconColor="#e8c39e"
+      iconBg="rgba(232, 195, 158, 0.15)"
+      maxWidth="460px"
+      footer={
         <button
           onClick={() => onGuardar({ name: nombre.trim(), email: correo.trim(), role: rol, avatarColor: color })}
           className="btn-studio-primary"
-          style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}
+          style={{
+            width: '100%',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: '8px',
+            padding: '10px 16px',
+            fontSize: '0.84rem',
+            borderRadius: '10px',
+            fontWeight: 700,
+            cursor: 'pointer'
+          }}
         >
           <Upload size={15} /> Guardar cambios en la nube
         </button>
+      }
+    >
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+        <label style={{ fontSize: '0.7rem', fontWeight: 700, color: 'var(--text-muted, #8892b0)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+          Nombre completo
+          <input
+            value={nombre}
+            onChange={e => setNombre(e.target.value)}
+            style={{
+              width: '100%',
+              marginTop: '6px',
+              padding: '9px 12px',
+              borderRadius: '10px',
+              border: '1px solid rgba(245, 225, 206, 0.18)',
+              background: 'rgba(23, 26, 74, 0.45)',
+              color: 'var(--text-primary, #f5e1ce)',
+              fontSize: '0.85rem',
+              outline: 'none',
+              boxSizing: 'border-box',
+              display: 'block'
+            }}
+          />
+        </label>
+
+        <label style={{ fontSize: '0.7rem', fontWeight: 700, color: 'var(--text-muted, #8892b0)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+          Correo electrónico
+          <input
+            value={correo}
+            onChange={e => setCorreo(e.target.value)}
+            type="email"
+            style={{
+              width: '100%',
+              marginTop: '6px',
+              padding: '9px 12px',
+              borderRadius: '10px',
+              border: '1px solid rgba(245, 225, 206, 0.18)',
+              background: 'rgba(23, 26, 74, 0.45)',
+              color: 'var(--text-primary, #f5e1ce)',
+              fontSize: '0.85rem',
+              outline: 'none',
+              boxSizing: 'border-box',
+              display: 'block'
+            }}
+          />
+        </label>
+
+        <label style={{ fontSize: '0.7rem', fontWeight: 700, color: 'var(--text-muted, #8892b0)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+          Rol profesional
+          <select
+            value={rol}
+            onChange={e => setRol(e.target.value as RolUsuario)}
+            style={{
+              width: '100%',
+              marginTop: '6px',
+              padding: '9px 12px',
+              borderRadius: '10px',
+              border: '1px solid rgba(245, 225, 206, 0.18)',
+              background: 'rgba(23, 26, 74, 0.85)',
+              color: 'var(--text-primary, #f5e1ce)',
+              fontSize: '0.85rem',
+              outline: 'none',
+              boxSizing: 'border-box',
+              display: 'block',
+              cursor: 'pointer'
+            }}
+          >
+            {ROLES_PERFIL.map(r => (
+              <option key={r} value={r} style={{ background: '#171a4a', color: '#f5e1ce' }}>
+                {r}
+              </option>
+            ))}
+          </select>
+        </label>
+
+        <div>
+          <div style={{ fontSize: '0.7rem', fontWeight: 700, color: 'var(--text-muted, #8892b0)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+            Color de avatar
+          </div>
+          <div style={{ display: 'flex', gap: '10px', marginTop: '8px' }}>
+            {COLORES_AVATAR.map(c => (
+              <button
+                key={c}
+                type="button"
+                onClick={() => setColor(c)}
+                style={{
+                  width: '28px',
+                  height: '28px',
+                  borderRadius: '8px',
+                  backgroundColor: c,
+                  border: color === c ? '2px solid #e8c39e' : '2px solid rgba(245, 225, 206, 0.15)',
+                  cursor: 'pointer',
+                  boxShadow: color === c ? '0 0 10px rgba(232, 195, 158, 0.5)' : 'none',
+                  transition: 'all 0.15s ease',
+                  transform: color === c ? 'scale(1.1)' : 'scale(1)'
+                }}
+                title={c}
+              />
+            ))}
+          </div>
+        </div>
       </div>
-    </div>
+    </GlassModal>
   );
 };

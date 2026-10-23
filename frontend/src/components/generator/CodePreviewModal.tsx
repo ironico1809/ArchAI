@@ -1,6 +1,5 @@
 import React, { useState } from 'react';
 import { 
-  X, 
   Copy, 
   Check, 
   Download, 
@@ -9,11 +8,13 @@ import {
   Send, 
   Layers,
   Code2,
-  FileText
+  FileText,
+  CheckCircle2
 } from 'lucide-react';
 import { ModeloDiagrama } from '../../types/uml';
 import { GenerationTab, GeneratedProject } from '../../types/generation';
 import { buildGeneratedProject } from '../../services/codeGenerator';
+import { GlassModal } from '../glass/GlassModal';
 
 interface CodePreviewModalProps {
   diagram: ModeloDiagrama;
@@ -80,74 +81,41 @@ export const CodePreviewModal: React.FC<CodePreviewModalProps> = ({
   };
 
   return (
-    <div style={{
-      position: 'fixed',
-      inset: 0,
-      background: 'var(--glass-modal-overlay)',
-      backdropFilter: 'var(--glass-blur-lg)',
-      WebkitBackdropFilter: 'var(--glass-blur-lg)',
-      display: 'flex',
-      alignItems: 'center',
-      justifyContent: 'center',
-      padding: '24px',
-      zIndex: 2000
-    }}>
-      <div className="glass-card" style={{
-        maxWidth: '1020px',
-        width: '100%',
-        maxHeight: '90vh',
-        display: 'flex',
-        flexDirection: 'column',
-        borderRadius: 'var(--radius-2xl)',
-        overflow: 'hidden',
-        border: '1px solid var(--glass-border-color)',
-        boxShadow: 'var(--shadow-glass-elevated)'
-      }}>
-        {/* Header */}
+    <GlassModal
+      isOpen={true}
+      onClose={onClose}
+      title="Motor de Generación de Código ArchAI"
+      subtitle="Spring Boot 3 + PostgreSQL DDL + Postman Collection + XMI OMG UML 2.5"
+      icon={<Code2 size={20} />}
+      iconBg="rgba(232, 195, 158, 0.15)"
+      iconColor="#e8c39e"
+      maxWidth="1020px"
+      maxHeight="88vh"
+      bodyStyle={{ padding: 0 }}
+      footer={
         <div style={{
-          padding: '18px 26px',
-          borderBottom: '1px solid var(--glass-border-color)',
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'space-between',
-          background: 'var(--glass-surface-elevated)'
+          width: '100%',
+          fontSize: '0.78rem',
+          color: 'var(--text-muted, #8892b0)'
         }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-            <div style={{
-              background: 'linear-gradient(135deg, var(--glass-accent), var(--glass-success))',
-              padding: '8px',
-              borderRadius: '10px',
-              boxShadow: 'var(--glow-accent)',
-              color: '#FFFFFF'
-            }}>
-              <Code2 size={22} />
-            </div>
-            <div>
-              <h3 style={{
-                fontFamily: 'var(--font-heading)',
-                fontSize: '1.25rem',
-                fontWeight: 800,
-                letterSpacing: '-0.02em',
-                color: 'var(--text-primary)'
-              }}>
-                Motor de Generación de Código ArchAI
-              </h3>
-              <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-                Spring Boot 3 + PostgreSQL DDL + Postman Collection + XMI OMG UML 2.5
-              </p>
-            </div>
-          </div>
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+            <CheckCircle2 size={14} color="#e8c39e" />
+            Compatible con Spring Boot 3.2+, PostgreSQL 15+ y Postman REST Client
+          </span>
           <button
+            type="button"
+            className="btn-studio-glass"
             onClick={onClose}
-            className="glass-button-secondary"
-            style={{
-              padding: '6px',
-              borderRadius: '8px'
-            }}
+            style={{ padding: '6px 16px', borderRadius: '8px', cursor: 'pointer' }}
           >
-            <X size={18} />
+            Cerrar Visor
           </button>
         </div>
+      }
+    >
 
         {/* Tab Navigation */}
         <div style={{
@@ -338,23 +306,6 @@ export const CodePreviewModal: React.FC<CodePreviewModalProps> = ({
           </div>
         </div>
 
-        {/* Footer */}
-        <div style={{
-          padding: '14px 26px',
-          borderTop: '1px solid var(--glass-border-color)',
-          background: 'var(--glass-surface-elevated)',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          fontSize: '0.78rem',
-          color: 'var(--text-muted)'
-        }}>
-          <span>✅ Compatible con Spring Boot 3.2+, PostgreSQL 15+ y Postman REST Client</span>
-          <button className="glass-button-secondary" onClick={onClose} style={{ padding: '6px 16px' }}>
-            Cerrar Visor
-          </button>
-        </div>
-      </div>
-    </div>
+    </GlassModal>
   );
 };

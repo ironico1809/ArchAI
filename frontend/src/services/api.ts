@@ -189,10 +189,10 @@ export function crearProyecto(datos: { nombre: string; descripcion?: string; ico
 
 // ─────────────────────────── CU-03 · Sala Colaborativa ───────────────────────────
 
-export function crearSalaColaborativa(nombreSala: string, usuario: PerfilUsuario): Promise<InformacionSesion> {
+export function crearSalaColaborativa(nombreSala: string, usuario: PerfilUsuario, pin?: string): Promise<InformacionSesion> {
   return apiFetch<InformacionSesion>('/api/v1/colaboracion/salas', {
     method: 'POST',
-    body: JSON.stringify({ nombreSala, anfitrion: usuario })
+    body: JSON.stringify({ nombreSala, anfitrion: usuario, pin })
   });
 }
 

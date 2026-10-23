@@ -17,4 +17,7 @@ public class CrearSalaSolicitudDto {
 
     @JsonProperty("anfitrion")
     private PerfilUsuarioDto anfitrion;
+
+    @JsonProperty("pin")
+    private String pin;
 }

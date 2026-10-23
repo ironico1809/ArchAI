@@ -10,6 +10,8 @@ import {
   Bot, 
   Shield,
   Zap,
+  Crown,
+  User,
   Sun,
   Moon
 } from 'lucide-react';
@@ -212,7 +214,15 @@ export const TopNavbar: React.FC<TopNavbarProps> = ({
           <div style={{ textAlign: 'left', lineHeight: 1.2 }}>
             <div style={{ fontSize: '0.82rem', fontWeight: 700, fontFamily: 'var(--font-heading)' }}>{session.currentUser.name}</div>
             <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>
-              {session.currentUser.isHost ? '👑 Anfitrión' : '👤 Colaborador'} · {session.currentUser.role}
+              {session.currentUser.isHost ? (
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                  <Crown size={12} color="var(--accent-primary)" /> Anfitrión
+                </span>
+              ) : (
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                  <User size={12} color="var(--text-secondary)" /> Colaborador
+                </span>
+              )} · {session.currentUser.role}
             </div>
           </div>
           <button

@@ -1,7 +1,7 @@
 import { ModeloDiagrama } from '../types/uml';
 
 /**
- * 🛒 Proyecto 1 - Diagrama 1: Comercio Electrónico Core
+ * Proyecto 1 - Diagrama 1: Comercio Electrónico Core
  */
 export const DIAGRAMA_ECOMMERCE_CORE: ModeloDiagrama = {
   title: 'Sistema de Comercio Electrónico v1.2',
@@ -99,7 +99,7 @@ export const DIAGRAMA_ECOMMERCE_CORE: ModeloDiagrama = {
 };
 
 /**
- * 🛡️ Proyecto 1 - Diagrama 2: Módulo de Seguridad y RBAC
+ * Proyecto 1 - Diagrama 2: Módulo de Seguridad y RBAC
  */
 export const DIAGRAMA_SEGURIDAD_RBAC: ModeloDiagrama = {
   title: 'Módulo de Seguridad y RBAC',
@@ -222,7 +222,7 @@ export const DIAGRAMA_SEGURIDAD_RBAC: ModeloDiagrama = {
 };
 
 /**
- * 💳 Proyecto 2: Plataforma Fintech & Billetera Digital
+ * Proyecto 2: Plataforma Fintech & Billetera Digital
  */
 export const DIAGRAMA_FINTECH_LEDGER: ModeloDiagrama = {
   title: 'Ledger Transaccional y Saldos',
@@ -347,7 +347,7 @@ export const DIAGRAMA_FINTECH_LEDGER: ModeloDiagrama = {
 };
 
 /**
- * 🩺 Proyecto 3: Telemetría IoT y Dispositivos Médicos
+ * Proyecto 3: Telemetría IoT y Dispositivos Médicos
  */
 export const DIAGRAMA_IOT_TELEMETRIA: ModeloDiagrama = {
   title: 'Monitorización de Sensores ICU',
@@ -472,7 +472,7 @@ export const DIAGRAMA_IOT_TELEMETRIA: ModeloDiagrama = {
 };
 
 /**
- * 🏥 Proyecto: Sistema Clínico Hospitalario (CU-02 / CU-04)
+ * Proyecto: Sistema Clínico Hospitalario (CU-02 / CU-04)
  */
 export const DIAGRAMA_HOSPITAL_CLINICO: ModeloDiagrama = {
   title: 'Sistema Clínico Hospitalario',
@@ -623,7 +623,7 @@ export const DIAGRAMA_HOSPITAL_CLINICO: ModeloDiagrama = {
 };
 
 /**
- * 📦 Proyecto: Plataforma E-Commerce B2B (CU-02 / CU-04)
+ * Proyecto: Plataforma E-Commerce B2B (CU-02 / CU-04)
  */
 export const DIAGRAMA_ECOMMERCE_B2B: ModeloDiagrama = {
   title: 'Plataforma E-Commerce B2B',

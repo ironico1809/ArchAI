@@ -1,7 +1,7 @@
 @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Outfit:wght@400;500;600;700;800;900&family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&display=swap');
 
 /* ======================================================== */
-/* 🎨 DESIGN TOKENS (DUAL MODE: SHADOW GRAY LIGHT & HUD DARK)*/
+/* DESIGN TOKENS (DUAL MODE: SHADOW GRAY LIGHT & HUD DARK)*/
 /* ======================================================== */
 
 :root {
@@ -23,7 +23,7 @@
 
 /* ======================================================== */
 /* ======================================================== */
-/* ☀️ LIGHT MODE — GRAY SHADOW & TRANSLUCENT FROSTED GLASS  */
+/* LIGHT MODE — GRAY SHADOW & TRANSLUCENT FROSTED GLASS  */
 /* ======================================================== */
 
 :root,
@@ -176,7 +176,7 @@
 
 /* ======================================================== */
 /* ======================================================== */
-/* 🌃 DARK MODE — MIDNIGHT NAVY & WARM SAND HUD             */
+/* DARK MODE — MIDNIGHT NAVY & WARM SAND HUD             */
 /* ======================================================== */
 
 [data-theme="dark"] {
@@ -386,7 +386,7 @@ h1, h2, h3, h4, h5, h6 {
 }
 
 /* ======================================================== */
-/* 🌌 CANVAS BACKGROUND (CLEAN SOLID WITH TECHNICAL DOT GRID)*/
+/* CANVAS BACKGROUND (CLEAN SOLID WITH TECHNICAL DOT GRID)*/
 /* ======================================================== */
 
 .canvas-ambient-backdrop {
@@ -406,7 +406,7 @@ h1, h2, h3, h4, h5, h6 {
 }
 
 /* ======================================================== */
-/* 🛸 HUD TOPBAR & TOOLBARS                                 */
+/* HUD TOPBAR & TOOLBARS                                 */
 /* ======================================================== */
 
 .hud-topbar {
@@ -475,7 +475,7 @@ h1, h2, h3, h4, h5, h6 {
 }
 
 /* ======================================================== */
-/* 📐 UML CLASS NODE CARDS                                  */
+/* UML CLASS NODE CARDS                                  */
 /* ======================================================== */
 
 .uml-class-node {
@@ -537,7 +537,7 @@ h1, h2, h3, h4, h5, h6 {
 }
 
 /* ======================================================== */
-/* 🎙️ FLOATING AI ASSISTANT PILL                            */
+/* FLOATING AI ASSISTANT PILL                            */
 /* ======================================================== */
 
 .floating-ai-assistant {
@@ -617,6 +617,31 @@ h1, h2, h3, h4, h5, h6 {
   transform: translateY(-1px);
 }
 
+.ai-chip-btn-view {
+  background: rgba(59, 130, 246, 0.14) !important;
+  border-color: rgba(59, 130, 246, 0.45) !important;
+  color: #60a5fa !important;
+}
+.ai-chip-btn-view:hover {
+  background: rgba(59, 130, 246, 0.24) !important;
+  transform: translateY(-1px);
+}
+
+.ai-chip-btn-modify {
+  background: rgba(139, 92, 246, 0.14) !important;
+  border-color: rgba(139, 92, 246, 0.45) !important;
+  color: #a78bfa !important;
+}
+.ai-chip-btn-modify:hover {
+  background: rgba(139, 92, 246, 0.24) !important;
+  transform: translateY(-1px);
+}
+.ai-chip-btn-modify:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  transform: none !important;
+}
+
 .ai-diagnostic-card {
   background: var(--glass-ai-diag-bg);
   border: 1px solid var(--glass-ai-diag-border);
@@ -629,6 +654,172 @@ h1, h2, h3, h4, h5, h6 {
   overflow-y: auto;
   box-shadow: 0 10px 25px rgba(0, 0, 0, 0.15);
   animation: fadeIn 0.2s ease-out;
+}
+
+/* ======================================================== */
+/* FLOATING AI CHAT UI                                   */
+/* ======================================================== */
+
+.floating-ai-assistant.chat-expanded {
+  height: 520px;
+  max-height: calc(100vh - 120px);
+  width: 620px;
+  max-width: calc(100vw - 32px);
+  border-radius: 20px;
+  padding: 14px 18px;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 10px;
+  box-shadow: 0 20px 50px rgba(0, 0, 32, 0.45), var(--glass-ai-shadow);
+}
+
+.ai-chat-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--glass-ai-diag-border);
+  flex-shrink: 0;
+}
+
+.ai-chat-history {
+  flex: 1;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 4px 6px 8px 2px;
+  min-height: 140px;
+  scrollbar-width: thin;
+  scrollbar-color: var(--glass-ai-diag-border) transparent;
+}
+
+.ai-chat-history::-webkit-scrollbar {
+  width: 5px;
+}
+
+.ai-chat-history::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.ai-chat-history::-webkit-scrollbar-thumb {
+  background: var(--glass-ai-diag-border);
+  border-radius: 4px;
+}
+
+.ai-chat-row {
+  display: flex;
+  width: 100%;
+  animation: fadeIn 0.18s ease-out;
+}
+
+.ai-chat-row.user {
+  justify-content: flex-end;
+}
+
+.ai-chat-row.ai {
+  justify-content: flex-start;
+  gap: 8px;
+}
+
+.ai-chat-bubble-user {
+  max-width: 82%;
+  background: linear-gradient(135deg, #171a4a 0%, #282c74 100%);
+  color: #ffffff;
+  border-radius: 16px 16px 4px 16px;
+  padding: 8px 14px;
+  font-size: 0.84rem;
+  line-height: 1.45;
+  word-break: break-word;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+}
+
+[data-theme='dark'] .ai-chat-bubble-user {
+  background: linear-gradient(135deg, #2b307e 0%, #171a4a 100%);
+  color: #f5e1ce;
+  border: 1px solid rgba(232, 195, 158, 0.35);
+}
+
+.ai-chat-bubble-ai {
+  max-width: 90%;
+  background: var(--glass-ai-diag-bg);
+  border: 1px solid var(--glass-ai-diag-border);
+  color: var(--text-primary);
+  border-radius: 16px 16px 16px 4px;
+  padding: 10px 14px;
+  font-size: 0.83rem;
+  line-height: 1.5;
+  word-break: break-word;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.08);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.ai-chat-timestamp {
+  font-size: 0.65rem;
+  color: var(--text-muted);
+  margin-top: 4px;
+  align-self: flex-end;
+}
+
+.ai-chat-typing-bubble {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--glass-ai-diag-bg);
+  border: 1px solid var(--glass-ai-diag-border);
+  border-radius: 14px 14px 14px 4px;
+  padding: 8px 12px;
+  font-size: 0.78rem;
+  color: var(--text-muted);
+}
+
+@keyframes typing-bounce {
+  0%, 80%, 100% {
+    transform: translateY(0);
+    opacity: 0.35;
+  }
+  40% {
+    transform: translateY(-4px);
+    opacity: 1;
+  }
+}
+
+.typing-dot {
+  display: inline-block;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--accent-emerald);
+  animation: typing-bounce 1.2s infinite ease-in-out;
+}
+
+.typing-dot:nth-child(2) {
+  animation-delay: 0.2s;
+}
+
+.typing-dot:nth-child(3) {
+  animation-delay: 0.4s;
+}
+
+.ai-chat-icon-btn {
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 6px;
+  transition: all 0.15s ease;
+}
+
+.ai-chat-icon-btn:hover {
+  color: var(--text-primary);
+  background: var(--glass-ai-icon-bg);
 }
 
 .mic-button-glow {
@@ -664,7 +855,7 @@ h1, h2, h3, h4, h5, h6 {
 }
 
 /* ======================================================== */
-/* 🔘 BUTTONS (THEME-AWARE)                                 */
+/* BUTTONS (THEME-AWARE)                                 */
 /* ======================================================== */
 
 .btn-studio-primary {
@@ -738,17 +929,29 @@ h1, h2, h3, h4, h5, h6 {
 }
 
 /* ======================================================== */
-/* 🖱️ COLLABORATIVE CURSORS                                  */
+/* COLLABORATIVE CURSORS                                  */
 /* ======================================================== */
 
-.studio-canvas-root,
-.studio-canvas-root * {
-  cursor: none !important;
+.studio-canvas-root {
+  cursor: default;
+}
+
+.studio-canvas-root.is-panning {
+  cursor: grabbing !important;
+}
+
+.studio-canvas-root.is-connecting {
+  cursor: crosshair !important;
+}
+
+.studio-canvas-root.is-space-pressed {
+  cursor: grab !important;
 }
 
 .studio-canvas-root input,
-.studio-canvas-root select {
-  cursor: text !important;
+.studio-canvas-root select,
+.studio-canvas-root textarea {
+  cursor: text;
 }
 
 .collaborative-cursor {
@@ -777,7 +980,7 @@ h1, h2, h3, h4, h5, h6 {
 }
 
 /* ======================================================== */
-/* 📜 CUSTOM SCROLLBAR                                      */
+/* CUSTOM SCROLLBAR                                      */
 /* ======================================================== */
 
 ::-webkit-scrollbar {
@@ -796,7 +999,7 @@ h1, h2, h3, h4, h5, h6 {
 }
 
 /* ======================================================== */
-/* 🌌 FLOATING DIAGRAMS LOGIN BACKGROUND                     */
+/* FLOATING DIAGRAMS LOGIN BACKGROUND                     */
 /* ======================================================== */
 
 .floating-diagram-backdrop {
@@ -888,7 +1091,7 @@ h1, h2, h3, h4, h5, h6 {
 }
 
 /* ======================================================== */
-/* 🖱️ MOUSE-REACTIVE LAYERS (PARALLAX + GLOW + PARTICLES)   */
+/* MOUSE-REACTIVE LAYERS (PARALLAX + GLOW + PARTICLES)   */
 /* ======================================================== */
 
 /* Mouse-following soft glow */
@@ -987,7 +1190,7 @@ h1, h2, h3, h4, h5, h6 {
 }
 
 /* ======================================================== */
-/* 💎 GLASS CARD & FORM ELEMENTS                            */
+/* GLASS CARD & FORM ELEMENTS                            */
 /* ======================================================== */
 
 .glass-card {
@@ -1063,7 +1266,7 @@ h1, h2, h3, h4, h5, h6 {
 }
 
 /* ======================================================== */
-/* 🪟 GLOBAL GLASS DIALOG MODALS & OVERLAYS                 */
+/* GLOBAL GLASS DIALOG MODALS & OVERLAYS                 */
 /* ======================================================== */
 .glass-dialog-overlay {
   position: fixed;
@@ -1107,7 +1310,7 @@ h1, h2, h3, h4, h5, h6 {
 }
 
 /* ======================================================== */
-/* 📱 GLASS SYSTEM · BLUR POLISH (UNIFORM FROST)            */
+/* GLASS SYSTEM · BLUR POLISH (UNIFORM FROST)            */
 /* ======================================================== */
 /* Single source of truth: surfaces always get the SAME      */
 /* frosted depth so the HUD looks cohesive instead of a      */
@@ -1135,7 +1338,7 @@ h1, h2, h3, h4, h5, h6 {
 }
 
 /* ======================================================== */
-/* 📱 RESPONSIVE · COMPACT HUD FOR NARROW / MOBILE SCREENS  */
+/* RESPONSIVE · COMPACT HUD FOR NARROW / MOBILE SCREENS  */
 /* ======================================================== */
 /* Objetivo: menos botones visibles (solo iconos), menos     */
 /* ruido tipográfico, y paneles que nunca roben el lienzo.   */
@@ -1234,7 +1437,7 @@ h1, h2, h3, h4, h5, h6 {
 }
 
 /* ======================================================== */
-/* 🧭 UNIFIED GLASS COMMAND DOCK & ENHANCED RESPONSIVENESS  */
+/* UNIFIED GLASS COMMAND DOCK & ENHANCED RESPONSIVENESS  */
 /* ======================================================== */
 
 .glass-command-dock {

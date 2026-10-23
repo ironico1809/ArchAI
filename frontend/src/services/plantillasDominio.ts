@@ -3,7 +3,6 @@ import { ModeloDiagrama, ClaseUml, RelacionUml } from '../types/uml';
 export interface PlantillaDominio {
   id: string;
   nombre: string;
-  icono: string;
   categoria: string;
   descripcion: string;
   color: string;
@@ -19,7 +18,6 @@ export const PLANTILLAS_DISPONIBLES: PlantillaDominio[] = [
   {
     id: 'ecommerce',
     nombre: 'E-Commerce y Facturación',
-    icono: '🛒',
     categoria: 'Comercio & Finanzas',
     descripcion: 'Gestión completa de tienda en línea: Clientes, Pedidos, Detalle de Carrito, Catálogo de Productos, Facturación Electrónica y Pagos.',
     color: '#0284c7',
@@ -65,12 +63,9 @@ export const PLANTILLAS_DISPONIBLES: PlantillaDominio[] = [
         {
           id: 'cls-detalle',
           name: 'DetallePedido',
-          stereotype: 'Entity',
-          position: { x: 800, y: 120 },
+          stereotype: 'AssociationClass',
+          position: { x: 800, y: 380 },
           attributes: [
-            { id: 'attr-det-1', name: 'id', type: 'Long', visibility: '-', isPrimaryKey: true },
-            { id: 'attr-det-2', name: 'pedidoId', type: 'Long', visibility: '-' },
-            { id: 'attr-det-3', name: 'productoId', type: 'Long', visibility: '-' },
             { id: 'attr-det-4', name: 'cantidad', type: 'Integer', visibility: '-' },
             { id: 'attr-det-5', name: 'precioUnitario', type: 'Double', visibility: '-' },
             { id: 'attr-det-6', name: 'subtotal', type: 'Double', visibility: '-' }
@@ -146,22 +141,14 @@ export const PLANTILLAS_DISPONIBLES: PlantillaDominio[] = [
           label: 'realiza'
         },
         {
-          id: 'rel-ecom-2',
+          id: 'rel-ecom-nm',
           sourceClassId: 'cls-pedido',
-          targetClassId: 'cls-detalle',
-          type: 'COMPOSITION',
-          sourceMultiplicity: '1',
+          targetClassId: 'cls-producto',
+          type: 'ASSOCIATION_N_M',
+          sourceMultiplicity: '*',
           targetMultiplicity: '1..*',
-          label: 'contiene'
-        },
-        {
-          id: 'rel-ecom-3',
-          sourceClassId: 'cls-producto',
-          targetClassId: 'cls-detalle',
-          type: 'ASSOCIATION_1_N',
-          sourceMultiplicity: '1',
-          targetMultiplicity: '*',
-          label: 'se incluye en'
+          label: 'DetallePedido',
+          associationClassId: 'cls-detalle'
         },
         {
           id: 'rel-ecom-4',
@@ -187,7 +174,6 @@ export const PLANTILLAS_DISPONIBLES: PlantillaDominio[] = [
   {
     id: 'hospital',
     nombre: 'Hospital y Clínica Médica',
-    icono: '🏥',
     categoria: 'Salud & Medicina',
     descripcion: 'Atención a Pacientes, Médicos Especialistas, Gestión de Citas Clínicas, Historiales Médicos y Recetas Farmacéuticas.',
     color: '#059669',
@@ -323,7 +309,6 @@ export const PLANTILLAS_DISPONIBLES: PlantillaDominio[] = [
   {
     id: 'universidad',
     nombre: 'Universidad & Matrícula',
-    icono: '🎓',
     categoria: 'Educación Superior',
     descripcion: 'Sistema de Estudiantes, Profesores, Cursos del Plan de Estudios, Matrículas Académicas y Registro de Calificaciones.',
     color: '#7c3aed',
@@ -458,7 +443,6 @@ export const PLANTILLAS_DISPONIBLES: PlantillaDominio[] = [
   {
     id: 'seguridad-rbac',
     nombre: 'Seguridad & Control de Acceso (RBAC)',
-    icono: '🔐',
     categoria: 'Seguridad & Infraestructura',
     descripcion: 'Autenticación y Autorización por Roles: Usuarios, Roles, Permisos, Asignación de Roles y Control de Sesiones JWT.',
     color: '#d97706',
@@ -586,7 +570,6 @@ export const PLANTILLAS_DISPONIBLES: PlantillaDominio[] = [
   {
     id: 'inventario',
     nombre: 'Inventario & Almacén',
-    icono: '📦',
     categoria: 'Logística & Operaciones',
     descripcion: 'Control de existencias, bodegas, movimientos de entrada/salida y proveedores.',
     color: '#059669',
@@ -695,7 +678,6 @@ export const PLANTILLAS_DISPONIBLES: PlantillaDominio[] = [
   {
     id: 'biblioteca',
     nombre: 'Biblioteca & Préstamos',
-    icono: '📚',
     categoria: 'Educación & Cultura',
     descripcion: 'Catálogo de obras literarias, autores, lectores/socios y control de préstamos con multas.',
     color: '#8b5cf6',
@@ -803,7 +785,6 @@ export const PLANTILLAS_DISPONIBLES: PlantillaDominio[] = [
   {
     id: 'hotel',
     nombre: 'Hotel & Reservaciones',
-    icono: '🏨',
     categoria: 'Turismo & Hospitalidad',
     descripcion: 'Huéspedes, habitaciones por categoría, reservas con fechas de check-in/out y liquidación.',
     color: '#f59e0b',
@@ -954,7 +935,8 @@ export const instanciarPlantilla = (
     ...r,
     id: `rel-p-${timestamp}-${rIdx}`,
     sourceClassId: idMap.get(r.sourceClassId) || r.sourceClassId,
-    targetClassId: idMap.get(r.targetClassId) || r.targetClassId
+    targetClassId: idMap.get(r.targetClassId) || r.targetClassId,
+    associationClassId: r.associationClassId ? (idMap.get(r.associationClassId) || r.associationClassId) : undefined
   }));
 
   return { classes: nuevasClases, relations: nuevasRelaciones };

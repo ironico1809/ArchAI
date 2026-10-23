@@ -39,7 +39,7 @@ export const VoiceAgentWidget: React.FC<VoiceAgentWidgetProps> = ({
       id: 'init-1',
       timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
       type: 'agent',
-      text: '🤖 Asistente IA Local activo. Dicta por voz o escribe en lenguaje natural para modelar el Diagrama UML 2.5.'
+      text: 'Asistente IA Local activo. Dicta por voz o escribe en lenguaje natural para modelar el Diagrama UML 2.5.'
     }
   ]);
 

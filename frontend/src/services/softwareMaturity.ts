@@ -42,7 +42,10 @@ export function calcularMadurezClase(
   todasLasClases: ClaseUml[]
 ): ResultadoMadurezClase {
   const tieneAtributos = (cls.attributes || []).length > 0;
-  const tienePk = (cls.attributes || []).some(a => a.isPrimaryKey || a.name.toLowerCase() === 'id');
+  const esAsociativa = cls.stereotype === 'AssociationClass' 
+    || String(cls.stereotype || '').toLowerCase().includes('association')
+    || relaciones.some(r => r.associationClassId === cls.id);
+  const tienePk = esAsociativa || (cls.attributes || []).some(a => a.isPrimaryKey || a.name.toLowerCase() === 'id');
   const tieneMetodos = (cls.methods || []).length > 0;
   
   // Relaciones donde participa como origen o destino

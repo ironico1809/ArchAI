@@ -6,3 +6,4 @@ export * from './GlassTextField';
 export * from './GlassDropdown';
 export * from './GlassSidebar';
 export * from './GlassChatBubble';
+export * from './GlassModal';

@@ -16,7 +16,6 @@ import {
   Moon,
   Trash2,
   FileCode2,
-  X,
   Edit3,
   Check
 } from 'lucide-react';
@@ -24,6 +23,7 @@ import { InformacionSesion } from '../../types/auth';
 import { ModeloDiagrama } from '../../types/uml';
 import { listarProyectos, crearProyecto, Proyecto } from '../../services/api';
 import { obtenerDiagramaPorId } from '../../services/diagramasPredefinidos';
+import { GlassModal } from '../../components/glass/GlassModal';
 
 interface PaginaGestorProyectosProps {
   session: InformacionSesion;
@@ -1302,611 +1302,427 @@ export const PaginaGestorProyectos: React.FC<PaginaGestorProyectosProps> = ({
       </main>
 
       {/* MODAL: Crear Nuevo Proyecto (CU-02) */}
-      {modalNuevoProyecto && (
-        <div style={{
-          position: 'fixed',
-          inset: 0,
-          background: c.modalOverlay,
-          backdropFilter: 'blur(8px)',
-          WebkitBackdropFilter: 'blur(8px)',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          padding: '20px',
-          zIndex: 9999
-        }}>
-          <div style={{
-            background: c.modalBg,
-            border: `1px solid ${c.modalBorder}`,
-            borderRadius: '14px',
-            maxWidth: '440px',
-            width: '100%',
-            padding: '20px 22px',
-            boxShadow: '0 20px 50px rgba(0, 0, 0, 0.4)'
-          }}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '14px' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <div style={{
-                  width: '28px',
-                  height: '28px',
-                  borderRadius: '7px',
-                  background: isDark ? 'rgba(47, 44, 121, 0.60)' : '#171a4a',
-                  border: '1px solid rgba(232, 195, 158, 0.45)',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  color: '#e8c39e'
-                }}>
-                  <Plus size={16} color="#e8c39e" />
-                </div>
-                <div>
-                  <h3 style={{ fontSize: '1.02rem', fontWeight: 800, margin: 0, color: c.textPrimary }}>
-                    Crear Nuevo Proyecto
-                  </h3>
-                  <span style={{ fontSize: '0.68rem', color: c.textMuted }}>
-                    Gestor de Espacios de Trabajo · CU-02
-                  </span>
-                </div>
-              </div>
-              <button
-                onClick={() => setModalNuevoProyecto(false)}
-                style={{ background: 'transparent', border: 'none', color: c.textMuted, cursor: 'pointer' }}
-              >
-                <X size={16} />
-              </button>
-            </div>
-
-            <form onSubmit={handleCrearProyecto}>
-              <div style={{ marginBottom: '12px' }}>
-                <label style={{ display: 'block', fontSize: '0.74rem', fontWeight: 700, color: c.textPrimary, marginBottom: '5px' }}>
-                  Nombre del Proyecto *
-                </label>
-                <input
-                  type="text"
-                  required
-                  placeholder="ej. Core Bancario Transaccional"
-                  value={nombreNuevoProyecto}
-                  onChange={e => setNombreNuevoProyecto(e.target.value)}
-                  style={{
-                    width: '100%',
-                    padding: '8px 10px',
-                    fontSize: '0.80rem',
-                    background: c.inputBg,
-                    border: `1px solid ${c.inputBorder}`,
-                    borderRadius: '7px',
-                    color: c.inputText,
-                    outline: 'none',
-                    boxSizing: 'border-box'
-                  }}
-                />
-              </div>
-
-              <div style={{ marginBottom: '12px' }}>
-                <label style={{ display: 'block', fontSize: '0.74rem', fontWeight: 700, color: c.textPrimary, marginBottom: '5px' }}>
-                  Descripción de la Arquitectura
-                </label>
-                <textarea
-                  rows={2}
-                  placeholder="Detalla el alcance, patrones y módulos del sistema..."
-                  value={descNuevoProyecto}
-                  onChange={e => setDescNuevoProyecto(e.target.value)}
-                  style={{
-                    width: '100%',
-                    padding: '8px 10px',
-                    fontSize: '0.80rem',
-                    background: c.inputBg,
-                    border: `1px solid ${c.inputBorder}`,
-                    borderRadius: '7px',
-                    color: c.inputText,
-                    outline: 'none',
-                    boxSizing: 'border-box',
-                    resize: 'none'
-                  }}
-                />
-              </div>
-
-              <div style={{ marginBottom: '16px' }}>
-                <label style={{ display: 'block', fontSize: '0.74rem', fontWeight: 700, color: c.textPrimary, marginBottom: '5px' }}>
-                  Color Identificador
-                </label>
-                <div style={{ display: 'flex', gap: '8px' }}>
-                  {['#e8c39e', '#2f2c79', '#8892b0', '#f5e1ce', '#5c688c', '#3a3670'].map(color => (
-                    <button
-                      key={color}
-                      type="button"
-                      onClick={() => setColorNuevoProyecto(color)}
-                      style={{
-                        width: '24px',
-                        height: '24px',
-                        borderRadius: '50%',
-                        backgroundColor: color,
-                        border: colorNuevoProyecto === color ? `2px solid ${c.textPrimary}` : '2px solid transparent',
-                        cursor: 'pointer',
-                        transform: colorNuevoProyecto === color ? 'scale(1.15)' : 'scale(1)',
-                        transition: 'all 0.15s ease'
-                      }}
-                    />
-                  ))}
-                </div>
-              </div>
-
-              <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
-                <button
-                  type="button"
-                  onClick={() => setModalNuevoProyecto(false)}
-                  style={{
-                    padding: '7px 14px',
-                    fontSize: '0.78rem',
-                    fontWeight: 700,
-                    color: c.btnGhostText,
-                    background: c.btnGhostBg,
-                    border: `1px solid ${c.btnGhostBorder}`,
-                    borderRadius: '7px',
-                    cursor: 'pointer'
-                  }}
-                >
-                  Cancelar
-                </button>
-                <button
-                  type="submit"
-                  disabled={cargando}
-                  style={{
-                    padding: '7px 16px',
-                    fontSize: '0.78rem',
-                    fontWeight: 800,
-                    color: '#000020',
-                    background: '#e8c39e',
-                    border: 'none',
-                    borderRadius: '7px',
-                    cursor: cargando ? 'wait' : 'pointer',
-                    boxShadow: '0 3px 10px rgba(232, 195, 158, 0.35)'
-                  }}
-                >
-                  {cargando ? 'Guardando...' : 'Crear Proyecto'}
-                </button>
-              </div>
-            </form>
+      <GlassModal
+        isOpen={modalNuevoProyecto}
+        onClose={() => setModalNuevoProyecto(false)}
+        title="Crear Nuevo Proyecto"
+        subtitle="Gestor de Espacios de Trabajo · CU-02"
+        icon={<Plus size={18} />}
+        iconBg={isDark ? 'rgba(47, 44, 121, 0.60)' : '#171a4a'}
+        iconColor="#e8c39e"
+        maxWidth="460px"
+      >
+        <form onSubmit={handleCrearProyecto}>
+          <div style={{ marginBottom: '12px' }}>
+            <label style={{ display: 'block', fontSize: '0.74rem', fontWeight: 700, color: c.textPrimary, marginBottom: '5px' }}>
+              Nombre del Proyecto *
+            </label>
+            <input
+              type="text"
+              required
+              placeholder="ej. Core Bancario Transaccional"
+              value={nombreNuevoProyecto}
+              onChange={e => setNombreNuevoProyecto(e.target.value)}
+              style={{
+                width: '100%',
+                padding: '8px 10px',
+                fontSize: '0.80rem',
+                background: c.inputBg,
+                border: `1px solid ${c.inputBorder}`,
+                borderRadius: '7px',
+                color: c.inputText,
+                outline: 'none',
+                boxSizing: 'border-box'
+              }}
+            />
           </div>
-        </div>
-      )}
+
+          <div style={{ marginBottom: '12px' }}>
+            <label style={{ display: 'block', fontSize: '0.74rem', fontWeight: 700, color: c.textPrimary, marginBottom: '5px' }}>
+              Descripción de la Arquitectura
+            </label>
+            <textarea
+              rows={2}
+              placeholder="Detalla el alcance, patrones y módulos del sistema..."
+              value={descNuevoProyecto}
+              onChange={e => setDescNuevoProyecto(e.target.value)}
+              style={{
+                width: '100%',
+                padding: '8px 10px',
+                fontSize: '0.80rem',
+                background: c.inputBg,
+                border: `1px solid ${c.inputBorder}`,
+                borderRadius: '7px',
+                color: c.inputText,
+                outline: 'none',
+                boxSizing: 'border-box',
+                resize: 'none'
+              }}
+            />
+          </div>
+
+          <div style={{ marginBottom: '16px' }}>
+            <label style={{ display: 'block', fontSize: '0.74rem', fontWeight: 700, color: c.textPrimary, marginBottom: '5px' }}>
+              Color Identificador
+            </label>
+            <div style={{ display: 'flex', gap: '8px' }}>
+              {['#e8c39e', '#2f2c79', '#8892b0', '#f5e1ce', '#5c688c', '#3a3670'].map(color => (
+                <button
+                  key={color}
+                  type="button"
+                  onClick={() => setColorNuevoProyecto(color)}
+                  style={{
+                    width: '24px',
+                    height: '24px',
+                    borderRadius: '50%',
+                    backgroundColor: color,
+                    border: colorNuevoProyecto === color ? `2px solid ${c.textPrimary}` : '2px solid transparent',
+                    cursor: 'pointer',
+                    transform: colorNuevoProyecto === color ? 'scale(1.15)' : 'scale(1)',
+                    transition: 'all 0.15s ease'
+                  }}
+                />
+              ))}
+            </div>
+          </div>
+
+          <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
+            <button
+              type="button"
+              onClick={() => setModalNuevoProyecto(false)}
+              style={{
+                padding: '7px 14px',
+                fontSize: '0.78rem',
+                fontWeight: 700,
+                color: c.btnGhostText,
+                background: c.btnGhostBg,
+                border: `1px solid ${c.btnGhostBorder}`,
+                borderRadius: '7px',
+                cursor: 'pointer'
+              }}
+            >
+              Cancelar
+            </button>
+            <button
+              type="submit"
+              disabled={cargando}
+              style={{
+                padding: '7px 16px',
+                fontSize: '0.78rem',
+                fontWeight: 800,
+                color: '#000020',
+                background: '#e8c39e',
+                border: 'none',
+                borderRadius: '7px',
+                cursor: cargando ? 'wait' : 'pointer',
+                boxShadow: '0 3px 10px rgba(232, 195, 158, 0.35)'
+              }}
+            >
+              {cargando ? 'Guardando...' : 'Crear Proyecto'}
+            </button>
+          </div>
+        </form>
+      </GlassModal>
 
       {/* MODAL: Editar Metadatos del Proyecto (CU-02) */}
-      {modalEditarProyecto && (
-        <div style={{
-          position: 'fixed',
-          inset: 0,
-          background: c.modalOverlay,
-          backdropFilter: 'blur(8px)',
-          WebkitBackdropFilter: 'blur(8px)',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          padding: '20px',
-          zIndex: 9999
-        }}>
-          <div style={{
-            background: c.modalBg,
-            border: `1px solid ${c.modalBorder}`,
-            borderRadius: '14px',
-            maxWidth: '440px',
-            width: '100%',
-            padding: '20px 22px',
-            boxShadow: '0 20px 50px rgba(0, 0, 0, 0.4)'
-          }}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '14px' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <div style={{
-                  width: '28px',
-                  height: '28px',
+      <GlassModal
+        isOpen={Boolean(modalEditarProyecto)}
+        onClose={() => setModalEditarProyecto(null)}
+        title="Editar Proyecto"
+        subtitle={modalEditarProyecto ? `Código: ${modalEditarProyecto.codigoAcceso}` : ''}
+        icon={<Edit3 size={17} />}
+        iconBg={isDark ? 'rgba(47, 44, 121, 0.60)' : '#171a4a'}
+        iconColor="#e8c39e"
+        maxWidth="460px"
+      >
+        <form onSubmit={handleGuardarEditarProyecto}>
+          <div style={{ marginBottom: '12px' }}>
+            <label style={{ display: 'block', fontSize: '0.74rem', fontWeight: 700, color: c.textPrimary, marginBottom: '5px' }}>
+              Nombre del Proyecto *
+            </label>
+            <input
+              type="text"
+              required
+              value={editNombreProyecto}
+              onChange={e => setEditNombreProyecto(e.target.value)}
+              style={{
+                width: '100%',
+                padding: '8px 10px',
+                fontSize: '0.80rem',
+                background: c.inputBg,
+                border: `1px solid ${c.inputBorder}`,
+                borderRadius: '7px',
+                color: c.inputText,
+                outline: 'none',
+                boxSizing: 'border-box'
+              }}
+            />
+          </div>
+
+          <div style={{ marginBottom: '12px' }}>
+            <label style={{ display: 'block', fontSize: '0.74rem', fontWeight: 700, color: c.textPrimary, marginBottom: '5px' }}>
+              Descripción de la Arquitectura
+            </label>
+            <textarea
+              rows={2}
+              value={editDescProyecto}
+              onChange={e => setEditDescProyecto(e.target.value)}
+              style={{
+                width: '100%',
+                padding: '8px 10px',
+                fontSize: '0.80rem',
+                background: c.inputBg,
+                border: `1px solid ${c.inputBorder}`,
+                borderRadius: '7px',
+                color: c.inputText,
+                outline: 'none',
+                boxSizing: 'border-box',
+                resize: 'none'
+              }}
+            />
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', marginBottom: '16px' }}>
+            <div>
+              <label style={{ display: 'block', fontSize: '0.74rem', fontWeight: 700, color: c.textPrimary, marginBottom: '5px' }}>
+                Estado
+              </label>
+              <select
+                value={editEstadoProyecto}
+                onChange={e => setEditEstadoProyecto(e.target.value as any)}
+                style={{
+                  width: '100%',
+                  padding: '7px 8px',
+                  fontSize: '0.78rem',
+                  background: c.inputBg,
+                  border: `1px solid ${c.inputBorder}`,
                   borderRadius: '7px',
-                  background: isDark ? 'rgba(47, 44, 121, 0.60)' : '#171a4a',
-                  border: '1px solid rgba(232, 195, 158, 0.45)',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  color: '#e8c39e'
-                }}>
-                  <Edit3 size={15} color="#e8c39e" />
-                </div>
-                <div>
-                  <h3 style={{ fontSize: '1.02rem', fontWeight: 800, margin: 0, color: c.textPrimary }}>
-                    Editar Proyecto
-                  </h3>
-                  <span style={{ fontSize: '0.68rem', color: c.textMuted }}>
-                    Código: {modalEditarProyecto.codigoAcceso}
-                  </span>
-                </div>
-              </div>
-              <button
-                onClick={() => setModalEditarProyecto(null)}
-                style={{ background: 'transparent', border: 'none', color: c.textMuted, cursor: 'pointer' }}
+                  color: c.inputText,
+                  outline: 'none'
+                }}
               >
-                <X size={16} />
-              </button>
+                <option value="ACTIVO">Activo</option>
+                <option value="EN_PROGRESO">En Progreso</option>
+                <option value="ARCHIVADO">Archivado</option>
+              </select>
             </div>
 
-            <form onSubmit={handleGuardarEditarProyecto}>
-              <div style={{ marginBottom: '12px' }}>
-                <label style={{ display: 'block', fontSize: '0.74rem', fontWeight: 700, color: c.textPrimary, marginBottom: '5px' }}>
-                  Nombre del Proyecto *
-                </label>
-                <input
-                  type="text"
-                  required
-                  value={editNombreProyecto}
-                  onChange={e => setEditNombreProyecto(e.target.value)}
-                  style={{
-                    width: '100%',
-                    padding: '8px 10px',
-                    fontSize: '0.80rem',
-                    background: c.inputBg,
-                    border: `1px solid ${c.inputBorder}`,
-                    borderRadius: '7px',
-                    color: c.inputText,
-                    outline: 'none',
-                    boxSizing: 'border-box'
-                  }}
-                />
-              </div>
-
-              <div style={{ marginBottom: '12px' }}>
-                <label style={{ display: 'block', fontSize: '0.74rem', fontWeight: 700, color: c.textPrimary, marginBottom: '5px' }}>
-                  Descripción de la Arquitectura
-                </label>
-                <textarea
-                  rows={2}
-                  value={editDescProyecto}
-                  onChange={e => setEditDescProyecto(e.target.value)}
-                  style={{
-                    width: '100%',
-                    padding: '8px 10px',
-                    fontSize: '0.80rem',
-                    background: c.inputBg,
-                    border: `1px solid ${c.inputBorder}`,
-                    borderRadius: '7px',
-                    color: c.inputText,
-                    outline: 'none',
-                    boxSizing: 'border-box',
-                    resize: 'none'
-                  }}
-                />
-              </div>
-
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', marginBottom: '16px' }}>
-                <div>
-                  <label style={{ display: 'block', fontSize: '0.74rem', fontWeight: 700, color: c.textPrimary, marginBottom: '5px' }}>
-                    Estado
-                  </label>
-                  <select
-                    value={editEstadoProyecto}
-                    onChange={e => setEditEstadoProyecto(e.target.value as any)}
+            <div>
+              <label style={{ display: 'block', fontSize: '0.74rem', fontWeight: 700, color: c.textPrimary, marginBottom: '5px' }}>
+                Color Identificador
+              </label>
+              <div style={{ display: 'flex', gap: '6px', marginTop: '4px' }}>
+                {['#e8c39e', '#2f2c79', '#8892b0', '#f5e1ce', '#5c688c', '#3a3670'].map(color => (
+                  <button
+                    key={color}
+                    type="button"
+                    onClick={() => setEditColorProyecto(color)}
                     style={{
-                      width: '100%',
-                      padding: '7px 8px',
-                      fontSize: '0.78rem',
-                      background: c.inputBg,
-                      border: `1px solid ${c.inputBorder}`,
-                      borderRadius: '7px',
-                      color: c.inputText,
-                      outline: 'none'
+                      width: '20px',
+                      height: '20px',
+                      borderRadius: '50%',
+                      backgroundColor: color,
+                      border: editColorProyecto === color ? `2px solid ${c.textPrimary}` : '2px solid transparent',
+                      cursor: 'pointer',
+                      transform: editColorProyecto === color ? 'scale(1.15)' : 'scale(1)',
+                      transition: 'all 0.15s ease'
                     }}
-                  >
-                    <option value="ACTIVO">Activo</option>
-                    <option value="EN_PROGRESO">En Progreso</option>
-                    <option value="ARCHIVADO">Archivado</option>
-                  </select>
-                </div>
-
-                <div>
-                  <label style={{ display: 'block', fontSize: '0.74rem', fontWeight: 700, color: c.textPrimary, marginBottom: '5px' }}>
-                    Color Identificador
-                  </label>
-                  <div style={{ display: 'flex', gap: '6px', marginTop: '4px' }}>
-                    {['#e8c39e', '#2f2c79', '#8892b0', '#f5e1ce', '#5c688c', '#3a3670'].map(color => (
-                      <button
-                        key={color}
-                        type="button"
-                        onClick={() => setEditColorProyecto(color)}
-                        style={{
-                          width: '20px',
-                          height: '20px',
-                          borderRadius: '50%',
-                          backgroundColor: color,
-                          border: editColorProyecto === color ? `2px solid ${c.textPrimary}` : '2px solid transparent',
-                          cursor: 'pointer',
-                          transform: editColorProyecto === color ? 'scale(1.15)' : 'scale(1)',
-                          transition: 'all 0.15s ease'
-                        }}
-                      />
-                    ))}
-                  </div>
-                </div>
+                  />
+                ))}
               </div>
-
-              <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
-                <button
-                  type="button"
-                  onClick={() => setModalEditarProyecto(null)}
-                  style={{
-                    padding: '7px 14px',
-                    fontSize: '0.78rem',
-                    fontWeight: 700,
-                    color: c.btnGhostText,
-                    background: c.btnGhostBg,
-                    border: `1px solid ${c.btnGhostBorder}`,
-                    borderRadius: '7px',
-                    cursor: 'pointer'
-                  }}
-                >
-                  Cancelar
-                </button>
-                <button
-                  type="submit"
-                  style={{
-                    padding: '7px 16px',
-                    fontSize: '0.78rem',
-                    fontWeight: 800,
-                    color: '#000020',
-                    background: '#e8c39e',
-                    border: 'none',
-                    borderRadius: '7px',
-                    cursor: 'pointer',
-                    boxShadow: '0 3px 10px rgba(232, 195, 158, 0.35)',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '5px'
-                  }}
-                >
-                  <Check size={14} /> Guardar Cambios
-                </button>
-              </div>
-            </form>
+            </div>
           </div>
-        </div>
-      )}
+
+          <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
+            <button
+              type="button"
+              onClick={() => setModalEditarProyecto(null)}
+              style={{
+                padding: '7px 14px',
+                fontSize: '0.78rem',
+                fontWeight: 700,
+                color: c.btnGhostText,
+                background: c.btnGhostBg,
+                border: `1px solid ${c.btnGhostBorder}`,
+                borderRadius: '7px',
+                cursor: 'pointer'
+              }}
+            >
+              Cancelar
+            </button>
+            <button
+              type="submit"
+              style={{
+                padding: '7px 16px',
+                fontSize: '0.78rem',
+                fontWeight: 800,
+                color: '#000020',
+                background: '#e8c39e',
+                border: 'none',
+                borderRadius: '7px',
+                cursor: 'pointer',
+                boxShadow: '0 3px 10px rgba(232, 195, 158, 0.35)',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '5px'
+              }}
+            >
+              <Check size={14} /> Guardar Cambios
+            </button>
+          </div>
+        </form>
+      </GlassModal>
 
       {/* MODAL: Editar / Renombrar Diagrama */}
-      {modalEditarDiagrama && (
-        <div style={{
-          position: 'fixed',
-          inset: 0,
-          background: c.modalOverlay,
-          backdropFilter: 'blur(8px)',
-          WebkitBackdropFilter: 'blur(8px)',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          padding: '20px',
-          zIndex: 9999
-        }}>
-          <div style={{
-            background: c.modalBg,
-            border: `1px solid ${c.modalBorder}`,
-            borderRadius: '14px',
-            maxWidth: '400px',
-            width: '100%',
-            padding: '20px 22px',
-            boxShadow: '0 20px 50px rgba(0, 0, 0, 0.4)'
-          }}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '14px' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <div style={{
-                  width: '28px',
-                  height: '28px',
-                  borderRadius: '7px',
-                  background: isDark ? 'rgba(47, 44, 121, 0.60)' : '#171a4a',
-                  border: '1px solid rgba(232, 195, 158, 0.45)',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  color: '#e8c39e'
-                }}>
-                  <Edit3 size={15} color="#e8c39e" />
-                </div>
-                <div>
-                  <h3 style={{ fontSize: '1.02rem', fontWeight: 800, margin: 0, color: c.textPrimary }}>
-                    Renombrar Diagrama
-                  </h3>
-                  <span style={{ fontSize: '0.68rem', color: c.textMuted }}>
-                    Editar título del modelo UML
-                  </span>
-                </div>
-              </div>
-              <button
-                onClick={() => setModalEditarDiagrama(null)}
-                style={{ background: 'transparent', border: 'none', color: c.textMuted, cursor: 'pointer' }}
-              >
-                <X size={16} />
-              </button>
-            </div>
-
-            <form onSubmit={handleGuardarEditarDiagrama}>
-              <div style={{ marginBottom: '16px' }}>
-                <label style={{ display: 'block', fontSize: '0.74rem', fontWeight: 700, color: c.textPrimary, marginBottom: '5px' }}>
-                  Título del Diagrama *
-                </label>
-                <input
-                  type="text"
-                  required
-                  value={editTituloDiagrama}
-                  onChange={e => setEditTituloDiagrama(e.target.value)}
-                  style={{
-                    width: '100%',
-                    padding: '8px 10px',
-                    fontSize: '0.80rem',
-                    background: c.inputBg,
-                    border: `1px solid ${c.inputBorder}`,
-                    borderRadius: '7px',
-                    color: c.inputText,
-                    outline: 'none',
-                    boxSizing: 'border-box'
-                  }}
-                />
-              </div>
-
-              <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
-                <button
-                  type="button"
-                  onClick={() => setModalEditarDiagrama(null)}
-                  style={{
-                    padding: '7px 14px',
-                    fontSize: '0.78rem',
-                    fontWeight: 700,
-                    color: c.btnGhostText,
-                    background: c.btnGhostBg,
-                    border: `1px solid ${c.btnGhostBorder}`,
-                    borderRadius: '7px',
-                    cursor: 'pointer'
-                  }}
-                >
-                  Cancelar
-                </button>
-                <button
-                  type="submit"
-                  style={{
-                    padding: '7px 16px',
-                    fontSize: '0.78rem',
-                    fontWeight: 800,
-                    color: '#000020',
-                    background: '#e8c39e',
-                    border: 'none',
-                    borderRadius: '7px',
-                    cursor: 'pointer',
-                    boxShadow: '0 3px 10px rgba(232, 195, 158, 0.35)',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '5px'
-                  }}
-                >
-                  <Check size={14} /> Guardar
-                </button>
-              </div>
-            </form>
+      <GlassModal
+        isOpen={Boolean(modalEditarDiagrama)}
+        onClose={() => setModalEditarDiagrama(null)}
+        title="Renombrar Diagrama"
+        subtitle="Editar título del modelo UML"
+        icon={<Edit3 size={17} />}
+        iconBg={isDark ? 'rgba(47, 44, 121, 0.60)' : '#171a4a'}
+        iconColor="#e8c39e"
+        maxWidth="420px"
+      >
+        <form onSubmit={handleGuardarEditarDiagrama}>
+          <div style={{ marginBottom: '16px' }}>
+            <label style={{ display: 'block', fontSize: '0.74rem', fontWeight: 700, color: c.textPrimary, marginBottom: '5px' }}>
+              Título del Diagrama *
+            </label>
+            <input
+              type="text"
+              required
+              value={editTituloDiagrama}
+              onChange={e => setEditTituloDiagrama(e.target.value)}
+              style={{
+                width: '100%',
+                padding: '8px 10px',
+                fontSize: '0.80rem',
+                background: c.inputBg,
+                border: `1px solid ${c.inputBorder}`,
+                borderRadius: '7px',
+                color: c.inputText,
+                outline: 'none',
+                boxSizing: 'border-box'
+              }}
+            />
           </div>
-        </div>
-      )}
+
+          <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
+            <button
+              type="button"
+              onClick={() => setModalEditarDiagrama(null)}
+              style={{
+                padding: '7px 14px',
+                fontSize: '0.78rem',
+                fontWeight: 700,
+                color: c.btnGhostText,
+                background: c.btnGhostBg,
+                border: `1px solid ${c.btnGhostBorder}`,
+                borderRadius: '7px',
+                cursor: 'pointer'
+              }}
+            >
+              Cancelar
+            </button>
+            <button
+              type="submit"
+              style={{
+                padding: '7px 16px',
+                fontSize: '0.78rem',
+                fontWeight: 800,
+                color: '#000020',
+                background: '#e8c39e',
+                border: 'none',
+                borderRadius: '7px',
+                cursor: 'pointer',
+                boxShadow: '0 3px 10px rgba(232, 195, 158, 0.35)',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '5px'
+              }}
+            >
+              <Check size={14} /> Guardar
+            </button>
+          </div>
+        </form>
+      </GlassModal>
 
       {/* MODAL: Añadir Nuevo Diagrama a un Proyecto */}
-      {modalNuevoDiagrama && (
-        <div style={{
-          position: 'fixed',
-          inset: 0,
-          background: c.modalOverlay,
-          backdropFilter: 'blur(8px)',
-          WebkitBackdropFilter: 'blur(8px)',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          padding: '20px',
-          zIndex: 9999
+      <GlassModal
+        isOpen={Boolean(modalNuevoDiagrama)}
+        onClose={() => setModalNuevoDiagrama(null)}
+        title="Añadir Diagrama UML"
+        subtitle="Nuevo modelo en este proyecto"
+        icon={<FileCode2 size={18} />}
+        iconBg={isDark ? 'rgba(47, 44, 121, 0.60)' : '#171a4a'}
+        iconColor="#e8c39e"
+        maxWidth="420px"
+      >
+        <form onSubmit={e => {
+          e.preventDefault();
+          if (modalNuevoDiagrama) handleCrearDiagrama(modalNuevoDiagrama);
         }}>
-          <div style={{
-            background: c.modalBg,
-            border: `1px solid ${c.modalBorder}`,
-            borderRadius: '14px',
-            maxWidth: '400px',
-            width: '100%',
-            padding: '20px 22px',
-            boxShadow: '0 20px 50px rgba(0, 0, 0, 0.4)'
-          }}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '14px' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <div style={{
-                  width: '28px',
-                  height: '28px',
-                  borderRadius: '7px',
-                  background: isDark ? 'rgba(47, 44, 121, 0.60)' : '#171a4a',
-                  border: '1px solid rgba(232, 195, 158, 0.45)',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  color: '#e8c39e'
-                }}>
-                  <FileCode2 size={16} color="#e8c39e" />
-                </div>
-                <div>
-                  <h3 style={{ fontSize: '1.02rem', fontWeight: 800, margin: 0, color: c.textPrimary }}>
-                    Añadir Diagrama UML
-                  </h3>
-                  <span style={{ fontSize: '0.68rem', color: c.textMuted }}>
-                    Nuevo modelo en este proyecto
-                  </span>
-                </div>
-              </div>
-              <button
-                onClick={() => setModalNuevoDiagrama(null)}
-                style={{ background: 'transparent', border: 'none', color: c.textMuted, cursor: 'pointer' }}
-              >
-                <X size={16} />
-              </button>
-            </div>
-
-            <form onSubmit={e => {
-              e.preventDefault();
-              handleCrearDiagrama(modalNuevoDiagrama);
-            }}>
-              <div style={{ marginBottom: '16px' }}>
-                <label style={{ display: 'block', fontSize: '0.74rem', fontWeight: 700, color: c.textPrimary, marginBottom: '5px' }}>
-                  Título del Diagrama *
-                </label>
-                <input
-                  type="text"
-                  required
-                  placeholder="ej. Módulo de Pagos y Liquidación"
-                  value={nombreNuevoDiagrama}
-                  onChange={e => setNombreNuevoDiagrama(e.target.value)}
-                  style={{
-                    width: '100%',
-                    padding: '8px 10px',
-                    fontSize: '0.80rem',
-                    background: c.inputBg,
-                    border: `1px solid ${c.inputBorder}`,
-                    borderRadius: '7px',
-                    color: c.inputText,
-                    outline: 'none',
-                    boxSizing: 'border-box'
-                  }}
-                />
-              </div>
-
-              <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
-                <button
-                  type="button"
-                  onClick={() => setModalNuevoDiagrama(null)}
-                  style={{
-                    padding: '7px 14px',
-                    fontSize: '0.78rem',
-                    fontWeight: 700,
-                    color: c.btnGhostText,
-                    background: c.btnGhostBg,
-                    border: `1px solid ${c.btnGhostBorder}`,
-                    borderRadius: '7px',
-                    cursor: 'pointer'
-                  }}
-                >
-                  Cancelar
-                </button>
-                <button
-                  type="submit"
-                  style={{
-                    padding: '7px 16px',
-                    fontSize: '0.78rem',
-                    fontWeight: 800,
-                    color: '#000020',
-                    background: '#e8c39e',
-                    border: 'none',
-                    borderRadius: '7px',
-                    cursor: 'pointer',
-                    boxShadow: '0 3px 10px rgba(232, 195, 158, 0.35)'
-                  }}
-                >
-                  Crear y Abrir en Estudio
-                </button>
-              </div>
-            </form>
+          <div style={{ marginBottom: '16px' }}>
+            <label style={{ display: 'block', fontSize: '0.74rem', fontWeight: 700, color: c.textPrimary, marginBottom: '5px' }}>
+              Título del Diagrama *
+            </label>
+            <input
+              type="text"
+              required
+              placeholder="ej. Módulo de Pagos y Liquidación"
+              value={nombreNuevoDiagrama}
+              onChange={e => setNombreNuevoDiagrama(e.target.value)}
+              style={{
+                width: '100%',
+                padding: '8px 10px',
+                fontSize: '0.80rem',
+                background: c.inputBg,
+                border: `1px solid ${c.inputBorder}`,
+                borderRadius: '7px',
+                color: c.inputText,
+                outline: 'none',
+                boxSizing: 'border-box'
+              }}
+            />
           </div>
-        </div>
-      )}
+
+          <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
+            <button
+              type="button"
+              onClick={() => setModalNuevoDiagrama(null)}
+              style={{
+                padding: '7px 14px',
+                fontSize: '0.78rem',
+                fontWeight: 700,
+                color: c.btnGhostText,
+                background: c.btnGhostBg,
+                border: `1px solid ${c.btnGhostBorder}`,
+                borderRadius: '7px',
+                cursor: 'pointer'
+              }}
+            >
+              Cancelar
+            </button>
+            <button
+              type="submit"
+              style={{
+                padding: '7px 16px',
+                fontSize: '0.78rem',
+                fontWeight: 800,
+                color: '#000020',
+                background: '#e8c39e',
+                border: 'none',
+                borderRadius: '7px',
+                cursor: 'pointer',
+                boxShadow: '0 3px 10px rgba(232, 195, 158, 0.35)'
+              }}
+            >
+              Crear y Abrir en Estudio
+            </button>
+          </div>
+        </form>
+      </GlassModal>
     </div>
   );
 };

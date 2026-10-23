@@ -36,12 +36,17 @@ export function auditarCodigoProyecto(
   const metodosSugeridosPorClase: Record<string, MetodoUml[]> = {};
   const endpointsExcluidos: string[] = [];
 
-  // 1. Análisis de Persistencia y Llaves Primarias
-  const totalPk = clases.filter(c => (c.attributes || []).some(a => a.isPrimaryKey || a.name.toLowerCase() === 'id')).length;
-  if (totalPk === clases.length && clases.length > 0) {
-    fortalezas.push(`Todas las entidades (${totalPk}/${clases.length}) cumplen con la normalización de clave primaria (PK).`);
-  } else {
-    alertasCriticas.push(`${clases.length - totalPk} clase(s) carecen de identificador primario PK para Spring Data JPA.`);
+  // 1. Análisis de Persistencia y Llaves Primarias (excluyendo clases asociativas que usan clave compuesta en DB)
+  const clasesEntidad = clases.filter(c => 
+    c.stereotype !== 'AssociationClass' && 
+    !String(c.stereotype || '').toLowerCase().includes('association') &&
+    !relaciones.some(r => r.associationClassId === c.id)
+  );
+  const totalPk = clasesEntidad.filter(c => (c.attributes || []).some(a => a.isPrimaryKey || a.name.toLowerCase() === 'id')).length;
+  if (totalPk === clasesEntidad.length && clasesEntidad.length > 0) {
+    fortalezas.push(`Todas las entidades (${totalPk}/${clasesEntidad.length}) cumplen con la normalización de clave primaria (PK).`);
+  } else if (clasesEntidad.length > totalPk) {
+    alertasCriticas.push(`${clasesEntidad.length - totalPk} clase(s) carecen de identificador primario PK para Spring Data JPA.`);
   }
 
   // 2. Análisis de Lógica de Negocio y Métodos
@@ -142,7 +147,7 @@ export function explicarArquitecturaClase(cls: ClaseUml, diagram: ModeloDiagrama
   const mets = cls.methods || [];
   const rels = (diagram.relations || []).filter(r => r.sourceClassId === cls.id || r.targetClassId === cls.id);
 
-  let desc = `### 🏛️ Arquitectura de la Clase **${cls.name}**\n\n`;
+  let desc = `### Arquitectura de la Clase **${cls.name}**\n\n`;
   desc += `* **Estereotipo**: \`${cls.stereotype || 'Entity'}\`\n`;
   desc += `* **Atributos de Persistencia (${attrs.length})**: ${attrs.map(a => `\`${a.name}: ${a.type}\``).join(', ')}\n`;
   desc += `* **Métodos de Negocio (${mets.length})**: ${mets.length > 0 ? mets.map(m => `\`${m.name}(): ${m.returnType}\``).join(', ') : 'Ninguno definido (Recomendado agregar lógica)'}\n`;

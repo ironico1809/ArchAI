@@ -49,7 +49,7 @@ public class ServicioVisionOcr {
     @Value("${archai.ia.gemini-api-key:}")
     private String geminiApiKey;
 
-    @Value("${archai.ia.gemini-model:gemini-2.5-flash}")
+    @Value("${archai.ia.gemini-model:gemini-3.8-flash}")
     private String geminiModel;
 
     public ServicioVisionOcr(ObjectMapper objectMapper) {
@@ -143,7 +143,7 @@ public class ServicioVisionOcr {
                   "classes": [
                     {
                       "name": "NombreClasePascalCase",
-                      "stereotype": "Entity",
+                      "stereotype": "Entity|AssociationClass|Interface|Abstract",
                       "attributes": [
                         { "name": "nombreCampo", "type": "Long|String|Integer|Double|Boolean|LocalDate|LocalDateTime", "visibility": "+|-|#", "isPrimaryKey": boolean }
                       ],
@@ -157,19 +157,26 @@ public class ServicioVisionOcr {
                     {
                       "sourceClassName": "ClaseOrigen",
                       "targetClassName": "ClaseDestino",
-                      "type": "ASSOCIATION_1_N|ASSOCIATION_1_1|ASSOCIATION_N_M|COMPOSITION|AGGREGATION|INHERITANCE",
-                      "sourceMultiplicity": "1|0..1|1..*|0..*|0..3|etc",
-                      "targetMultiplicity": "1|0..1|1..*|0..*|0..3|etc",
-                      "label": "rol o nombre si existe"
+                      "type": "ASSOCIATION_1_N|ASSOCIATION_1_1|ASSOCIATION_N_M|COMPOSITION|AGGREGATION|INHERITANCE|ASSOCIATION_CLASS",
+                      "sourceMultiplicity": "1|0..1|1..*|0..*|0..3|*|etc",
+                      "targetMultiplicity": "1|0..1|1..*|0..*|0..3|*|etc",
+                      "label": "rol o nombre si existe",
+                      "associationClassName": "NombreClaseAsociativaSiExiste"
                     }
                   ]
                 }
                 Reglas obligatorias:
                 1. Devuelve exclusivamente el JSON sin código markdown, sin backticks y sin explicaciones.
                 2. Extrae todas las clases visibles con sus nombres exactos en PascalCase.
-                3. Por cada clase, extrae todos los atributos tipados. Si un atributo es identificador o clave primaria (+identificador, id, numSocio, etc.), marca isPrimaryKey: true.
-                4. Extrae todos los métodos u operaciones visibles (+devolver(), +prestar(), +calcularFechaFin(), etc.).
-                5. Identifica todas las relaciones y multiplicidades indicadas.
+                3. REGLA ESTRICTA DE CLASES ASOCIATIVAS (AssociationClass) EN RELACIONES:
+                   Si una clase está conectada mediante una línea punteada o discontinua a una línea de relación entre dos entidades maestras A y B (ej. DetalleVenta entre Venta y Producto):
+                   - Asigna a dicha clase "stereotype": "AssociationClass".
+                   - Define UNA ÚNICA relación entre las dos entidades maestras A y B (con tipo "ASSOCIATION_N_M" o según las multiplicidades dibujadas) indicando "associationClassName": "<NombreClaseAsociativa>".
+                   - ESTÁ TERMINANTEMENTE PROHIBIDO generar relaciones directas separadas entre A y la clase asociativa, o entre B y la clase asociativa. La única relación es entre A y B vinculada por "associationClassName" (la conexión en T punteada hacia la clase asociativa se genera de manera automática).
+                4. REGLA UNIVERSAL DE CLASES ASOCIATIVAS (AssociationClass): Cualquier clase que en el diagrama esté unida mediante una línea discontinua a una relación entre dos entidades (ejemplos en cualquier dominio: Detalle en ventas, Inscripcion o Matricula en educación, Cita o Consulta en salud, Asignacion en proyectos, Reserva en hotelería/vuelos, Suministro en logística, etc.) es una CLASE ASOCIATIVA. En UML 2.5, una clase asociativa NO lleva clave primaria artificial ("id"). Extrae ÚNICAMENTE los atributos que estén explícitamente dibujados o escritos dentro de dicha caja con isPrimaryKey: false. NUNCA inventes ni agregues un campo "id" a una clase asociativa si no aparece dibujado.
+                5. Para las demás entidades estándar, si un atributo es identificador o clave primaria (+identificador, id, numSocio, etc.), marca isPrimaryKey: true. Si una clase normal no tiene identificador visible, no inventes campos innecesarios.
+                6. Extrae todos los métodos u operaciones visibles (+devolver(), +prestar(), +calcularFechaFin(), etc.). Si una clase no tiene métodos dibujados en la pizarra, su lista "methods" debe ser una lista vacía [].
+                7. Identifica todas las relaciones y multiplicidades indicadas.
                 """;
 
             String promptJsonEscaped = objectMapper.writeValueAsString(prompt);
@@ -184,7 +191,7 @@ public class ServicioVisionOcr {
                     + "  \"generationConfig\": { \"response_mime_type\": \"application/json\" }\n"
                     + "}";
 
-            String modelo = (geminiModel != null && !geminiModel.isBlank()) ? geminiModel.trim() : "gemini-2.5-flash";
+            String modelo = (geminiModel != null && !geminiModel.isBlank()) ? geminiModel.trim() : "gemini-3.8-flash";
             String url = "https://generativelanguage.googleapis.com/v1beta/models/" + modelo + ":generateContent?key=" + apiKey;
 
             HttpClient client = HttpClient.newBuilder()
@@ -238,6 +245,25 @@ public class ServicioVisionOcr {
         List<UmlClassDto> clases = new ArrayList<>();
         Map<String, String> nameToId = new HashMap<>();
 
+        // 1. Recolectar nombres de clases asociativas referenciadas en las relaciones (cualquier dominio)
+        JsonNode relationsNode = node.path("relations");
+        Set<String> assocClassNamesFromRelations = new HashSet<>();
+        if (relationsNode.isArray()) {
+            for (JsonNode rNode : relationsNode) {
+                String acn = rNode.path("associationClassName").asText("").trim().toLowerCase();
+                if (!acn.isEmpty()) {
+                    assocClassNamesFromRelations.add(acn);
+                }
+                String rType = rNode.path("type").asText("").toUpperCase();
+                if (rType.contains("ASSOCIATION_CLASS") || rType.contains("ASOCIATIVA")) {
+                    String lbl = rNode.path("label").asText("").trim().toLowerCase();
+                    if (!lbl.isEmpty()) assocClassNamesFromRelations.add(lbl);
+                    String tgt = rNode.path("targetClassName").asText("").trim().toLowerCase();
+                    if (!tgt.isEmpty()) assocClassNamesFromRelations.add(tgt);
+                }
+            }
+        }
+
         JsonNode classesNode = node.path("classes");
         if (classesNode.isArray()) {
             int idx = 0;
@@ -248,6 +274,24 @@ public class ServicioVisionOcr {
                 nameToId.put(name.toLowerCase(), classId);
                 nameToId.put(rawName.toLowerCase(), classId);
 
+                String rawStereotype = cNode.path("stereotype").asText("Entity").trim();
+                boolean isAssociationClass = "AssociationClass".equalsIgnoreCase(rawStereotype)
+                        || "association_class".equalsIgnoreCase(rawStereotype)
+                        || rawStereotype.toLowerCase().contains("association")
+                        || rawStereotype.toLowerCase().contains("asociativa")
+                        || assocClassNamesFromRelations.contains(name.toLowerCase())
+                        || assocClassNamesFromRelations.contains(rawName.toLowerCase())
+                        || name.toLowerCase().endsWith("asociativa")
+                        || rawName.toLowerCase().endsWith("asociativa")
+                        || name.toLowerCase().contains("detalle")
+                        || rawName.toLowerCase().contains("detalle")
+                        || name.toLowerCase().contains("linea")
+                        || name.toLowerCase().contains("item")
+                        || name.toLowerCase().contains("intermedia")
+                        || name.toLowerCase().contains("inscripcion")
+                        || name.toLowerCase().contains("matricula")
+                        || name.toLowerCase().contains("reserva");
+
                 // Attributes
                 List<UmlAttributeDto> attrs = new ArrayList<>();
                 JsonNode attrsNode = cNode.path("attributes");
@@ -256,10 +300,16 @@ public class ServicioVisionOcr {
                     int attrIdx = 0;
                     for (JsonNode aNode : attrsNode) {
                         String attrName = aNode.path("name").asText("attr" + attrIdx).trim();
+
+                        // Si es clase asociativa, omitir cualquier 'id' artificial
+                        if (isAssociationClass && attrName.equalsIgnoreCase("id")) {
+                            continue;
+                        }
+
                         String attrType = normalizeAttrType(aNode.path("type").asText("String"));
                         String visibility = normalizeVisibility(aNode.path("visibility").asText("+"));
-                        boolean isPk = aNode.path("isPrimaryKey").asBoolean(false);
-                        if (!hasPk && isPkCandidate(attrName, isPk)) {
+                        boolean isPk = !isAssociationClass && aNode.path("isPrimaryKey").asBoolean(false);
+                        if (!isAssociationClass && !hasPk && isPkCandidate(attrName, isPk)) {
                             isPk = true;
                             hasPk = true;
                         }
@@ -275,8 +325,8 @@ public class ServicioVisionOcr {
                     }
                 }
 
-                // Garantizar al menos una clave primaria
-                if (!hasPk) {
+                // Garantizar al menos una clave primaria SOLO en entidades normales
+                if (!hasPk && !isAssociationClass) {
                     if (!attrs.isEmpty()) {
                         attrs.get(0).setPrimaryKey(true);
                         attrs.get(0).setNullable(false);
@@ -318,7 +368,7 @@ public class ServicioVisionOcr {
                 clases.add(UmlClassDto.builder()
                         .id(classId)
                         .name(name)
-                        .stereotype(cNode.path("stereotype").asText("Entity"))
+                        .stereotype(isAssociationClass ? "AssociationClass" : rawStereotype)
                         .position(new PositionDto(posX, posY))
                         .attributes(attrs)
                         .methods(methods)
@@ -329,7 +379,6 @@ public class ServicioVisionOcr {
 
         // Relations
         List<UmlRelationDto> relaciones = new ArrayList<>();
-        JsonNode relationsNode = node.path("relations");
         if (relationsNode.isArray()) {
             for (JsonNode rNode : relationsNode) {
                 String srcName = rNode.path("sourceClassName").asText("").toLowerCase().trim();
@@ -343,6 +392,8 @@ public class ServicioVisionOcr {
                     String srcMult = rNode.path("sourceMultiplicity").asText("1").trim();
                     String tgtMult = rNode.path("targetMultiplicity").asText("1..*").trim();
                     String label = rNode.path("label").asText("").trim();
+                    String assocClassName = rNode.path("associationClassName").asText("").toLowerCase().trim();
+                    String assocClassId = !assocClassName.isEmpty() ? nameToId.get(assocClassName) : null;
 
                     relaciones.add(UmlRelationDto.builder()
                             .id("rel-" + UUID.randomUUID().toString().substring(0, 8))
@@ -353,10 +404,101 @@ public class ServicioVisionOcr {
                             .targetMultiplicity(tgtMult.isEmpty() ? "1..*" : tgtMult)
                             .sourceRole(label)
                             .targetRole("")
+                            .associationClassId(assocClassId)
                             .build());
                 }
             }
         }
+
+        // UML 2.5 — Post-procesamiento estricto de Clases Asociativas:
+        // Una clase asociativa SOLO debe estar conectada mediante el enlace perpendicular en T (associationClassId).
+        // Se descartan de manera universal aristas binarias directas redundantes hacia las entidades asociadas.
+
+        // 1. Identificar todas las clases asociativas
+        Set<String> assocClassIds = new HashSet<>();
+        for (UmlClassDto cls : clases) {
+            if ("AssociationClass".equalsIgnoreCase(cls.getStereotype())) {
+                assocClassIds.add(cls.getId());
+            }
+        }
+        for (UmlRelationDto rel : relaciones) {
+            if (rel.getAssociationClassId() != null && !rel.getAssociationClassId().isBlank()) {
+                assocClassIds.add(rel.getAssociationClassId());
+            }
+        }
+
+        // 2. Si la IA reconoció conexiones directas A -> C y B -> C pero omitió la relación directa A <-> B:
+        // Sintetizar la relación A <-> B (ASSOCIATION_N_M) con associationClassId = C.id
+        for (String acId : assocClassIds) {
+            List<UmlRelationDto> directRelsToAc = new ArrayList<>();
+            for (UmlRelationDto r : relaciones) {
+                if ((acId.equals(r.getSourceClassId()) || acId.equals(r.getTargetClassId()))
+                        && (r.getAssociationClassId() == null || r.getAssociationClassId().isBlank())) {
+                    directRelsToAc.add(r);
+                }
+            }
+
+            Set<String> connectedEntities = new LinkedHashSet<>();
+            for (UmlRelationDto r : directRelsToAc) {
+                String other = acId.equals(r.getSourceClassId()) ? r.getTargetClassId() : r.getSourceClassId();
+                if (other != null && !other.equals(acId)) {
+                    connectedEntities.add(other);
+                }
+            }
+
+            if (connectedEntities.size() >= 2) {
+                List<String> entityList = new ArrayList<>(connectedEntities);
+                String entA = entityList.get(0);
+                String entB = entityList.get(1);
+
+                Optional<UmlRelationDto> existingDirect = relaciones.stream()
+                        .filter(r -> (entA.equals(r.getSourceClassId()) && entB.equals(r.getTargetClassId())) ||
+                                     (entB.equals(r.getSourceClassId()) && entA.equals(r.getTargetClassId())))
+                        .findFirst();
+
+                if (existingDirect.isPresent()) {
+                    existingDirect.get().setAssociationClassId(acId);
+                    existingDirect.get().setType("ASSOCIATION_N_M");
+                } else {
+                    UmlClassDto acCls = clases.stream().filter(c -> c.getId().equals(acId)).findFirst().orElse(null);
+                    String acName = acCls != null ? acCls.getName() : "";
+                    relaciones.add(UmlRelationDto.builder()
+                            .id("rel-" + UUID.randomUUID().toString().substring(0, 8))
+                            .sourceClassId(entA)
+                            .targetClassId(entB)
+                            .type("ASSOCIATION_N_M")
+                            .sourceMultiplicity("*")
+                            .targetMultiplicity("1..*")
+                            .sourceRole(acName)
+                            .targetRole("")
+                            .associationClassId(acId)
+                            .build());
+                }
+            }
+        }
+
+        // 3. Purga universal de aristas directas redundantes hacia cualquier clase asociativa activa
+        Set<String> activeAssocClassIds = new HashSet<>();
+        for (UmlRelationDto r : relaciones) {
+            if (r.getAssociationClassId() != null && !r.getAssociationClassId().isBlank()) {
+                activeAssocClassIds.add(r.getAssociationClassId());
+            }
+        }
+        for (UmlClassDto c : clases) {
+            if ("AssociationClass".equalsIgnoreCase(c.getStereotype())) {
+                activeAssocClassIds.add(c.getId());
+            }
+        }
+
+        relaciones.removeIf(r -> {
+            boolean sourceIsAssoc = activeAssocClassIds.contains(r.getSourceClassId());
+            boolean targetIsAssoc = activeAssocClassIds.contains(r.getTargetClassId());
+            if (sourceIsAssoc || targetIsAssoc) {
+                log.info("Descartando relación binaria redundante a clase asociativa: {} -> {}", r.getSourceClassId(), r.getTargetClassId());
+                return true;
+            }
+            return false;
+        });
 
         return DiagramDto.builder()
                 .id("diag-vision-" + UUID.randomUUID().toString().substring(0, 8))
@@ -426,6 +568,40 @@ public class ServicioVisionOcr {
         String env = System.getenv("GEMINI_API_KEY");
         if (env != null && !env.trim().isEmpty()) {
             return env.trim();
+        }
+        String viteEnv = System.getenv("VITE_GEMINI_API_KEY");
+        if (viteEnv != null && !viteEnv.trim().isEmpty()) {
+            return viteEnv.trim();
+        }
+        String sysVite = System.getProperty("VITE_GEMINI_API_KEY");
+        if (sysVite != null && !sysVite.trim().isEmpty()) {
+            return sysVite.trim();
+        }
+        return leerClaveDesdeEnvLocal();
+    }
+
+    private String leerClaveDesdeEnvLocal() {
+        List<java.nio.file.Path> rutas = List.of(
+                java.nio.file.Path.of(".env"),
+                java.nio.file.Path.of("backend", ".env"),
+                java.nio.file.Path.of("..", "backend", ".env"),
+                java.nio.file.Path.of("frontend", ".env"),
+                java.nio.file.Path.of("..", "frontend", ".env")
+        );
+        for (java.nio.file.Path p : rutas) {
+            try {
+                if (java.nio.file.Files.exists(p)) {
+                    List<String> lineas = java.nio.file.Files.readAllLines(p);
+                    for (String l : lineas) {
+                        String trim = l.trim();
+                        if (trim.startsWith("GEMINI_API_KEY=") || trim.startsWith("VITE_GEMINI_API_KEY=")) {
+                            String val = trim.substring(trim.indexOf('=') + 1).trim();
+                            if (!val.isEmpty()) return val;
+                        }
+                    }
+                }
+            } catch (Exception ignored) {
+            }
         }
         return null;
     }

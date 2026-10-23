@@ -14,7 +14,7 @@ interface LoginBackgroundProps {
   children?: React.ReactNode;
 }
 
-// ✨ Paleta Midnight Navy & Warm Sand (vault 01 - Arquitectura):
+// Paleta Midnight Navy & Warm Sand (vault 01 - Arquitectura):
 // partículas sobrias en Arena Cálida, Marfil y Gris-Azul desaturado.
 const PARTICLES = [
   { x: '8%',  y: '16%', s: 6, c: '232, 195, 158', o: 0.45, d: '7s' },
@@ -187,7 +187,7 @@ export const LoginBackground: React.FC<LoginBackgroundProps> = ({ children }) =>
           />
         </svg>
 
-        {/* 🟦 SOLID MATTE DIAGRAM 1: «Entity» Usuario (Top-Left, frames background) */}
+        {/* SOLID MATTE DIAGRAM 1: «Entity» Usuario (Top-Left, frames background) */}
         <div
           className="floating-vibrant-square floating-anim-1"
           style={{
@@ -273,7 +273,7 @@ export const LoginBackground: React.FC<LoginBackgroundProps> = ({ children }) =>
           </div>
         </div>
 
-        {/* 🟩 SOLID MATTE DIAGRAM 2: «Service» AuthService (Bottom-Right, frames background) */}
+        {/* SOLID MATTE DIAGRAM 2: «Service» AuthService (Bottom-Right, frames background) */}
         <div
           className="floating-vibrant-square floating-anim-2"
           style={{
@@ -351,7 +351,7 @@ export const LoginBackground: React.FC<LoginBackgroundProps> = ({ children }) =>
           </div>
         </div>
 
-        {/* 🟪 SOLID MATTE DIAGRAM 3: «Controller» AuthController (Top-Right) */}
+        {/* SOLID MATTE DIAGRAM 3: «Controller» AuthController (Top-Right) */}
         <div
           className="floating-vibrant-square floating-anim-3"
           style={{
@@ -413,7 +413,7 @@ export const LoginBackground: React.FC<LoginBackgroundProps> = ({ children }) =>
           </div>
         </div>
 
-        {/* 🟦 SOLID MATTE DIAGRAM 4: «Repository» UserRepository (Bottom-Left) */}
+        {/* SOLID MATTE DIAGRAM 4: «Repository» UserRepository (Bottom-Left) */}
         <div
           className="floating-vibrant-square floating-anim-4"
           style={{
@@ -475,7 +475,7 @@ export const LoginBackground: React.FC<LoginBackgroundProps> = ({ children }) =>
           </div>
         </div>
 
-        {/* 💻 EXTRA FLOATING ELEMENT 1: Spring Boot Java 21 Code Snippet Card */}
+        {/* EXTRA FLOATING ELEMENT 1: Spring Boot Java 21 Code Snippet Card */}
         <div
           className="floating-tech-card floating-anim-1"
           style={{
@@ -503,7 +503,7 @@ export const LoginBackground: React.FC<LoginBackgroundProps> = ({ children }) =>
           <div style={{ color: '#e8c39e' }}>&#125;</div>
         </div>
 
-        {/* 🚀 EXTRA FLOATING ELEMENT 2: REST API Endpoint Chip */}
+        {/* EXTRA FLOATING ELEMENT 2: REST API Endpoint Chip */}
         <div
           className="floating-tech-chip floating-anim-3"
           style={{
@@ -531,7 +531,7 @@ export const LoginBackground: React.FC<LoginBackgroundProps> = ({ children }) =>
           </span>
         </div>
 
-        {/* 🐘 EXTRA FLOATING ELEMENT 3: PostgreSQL Schema DDL Chip */}
+        {/* EXTRA FLOATING ELEMENT 3: PostgreSQL Schema DDL Chip */}
         <div
           className="floating-tech-chip floating-anim-4"
           style={{
@@ -556,7 +556,7 @@ export const LoginBackground: React.FC<LoginBackgroundProps> = ({ children }) =>
           </span>
         </div>
 
-        {/* ⚡ EXTRA FLOATING ELEMENT 4: AST UML Parser Sync Chip */}
+        {/* EXTRA FLOATING ELEMENT 4: AST UML Parser Sync Chip */}
         <div
           className="floating-tech-chip floating-anim-2"
           style={{

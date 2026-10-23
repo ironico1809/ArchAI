@@ -1729,7 +1729,7 @@ export default function App() {
     <NavigationContainer>
       <Stack.Navigator initialRouteName="Home">
         <Stack.Screen name="Home" component={HomeScreen} options={{ title: '${diagram.title || 'ArchAI App'}' }} />
-        <Stack.Screen name="Chat" component={ChatScreen} options={{ title: '🤖 Asistente IA (qwen2.5:3b)' }} />
+        <Stack.Screen name="Chat" component={ChatScreen} options={{ title: 'Asistente IA (qwen2.5:3b)' }} />
 ${navigation}      </Stack.Navigator>
     </NavigationContainer>
   );
@@ -1740,7 +1740,7 @@ ${navigation}      </Stack.Navigator>
   // ── src/screens/HomeScreen.tsx ──
   // ── src/screens/HomeScreen.tsx (Dashboard Dinámico con KPIs, Logout y Dock) ──
   const kpiColors = ['#3b82f6', '#10b981', '#f59e0b', '#8b5cf6', '#ec4899', '#06b6d4', '#14b8a6'];
-  const kpiIcons = ['👥', '👨‍⚕️', '📅', '📋', '💊', '📦', '🏢', '🏷️', '📊', '💼'];
+  const kpiIcons = ['▪', '▪', '▪', '▪', '▪', '▪', '▪', '▪', '▪', '▪'];
 
   let kpiFetches = '';
   let kpiStatesDef = '';
@@ -1873,16 +1873,16 @@ ${kpiStatesExtract}      });
         <View style={styles.headerCard}>
           <View style={styles.headerLeft}>
             <View style={styles.clinicTag}>
-              <Text style={styles.clinicTagText}>🌟 ${diagram.title || 'ARCHAI SISTEMA'}</Text>
+              <Text style={styles.clinicTagText}>${diagram.title || 'ARCHAI SISTEMA'}</Text>
             </View>
-            <Text style={styles.welcomeText}>Hola, {user} 👋</Text>
+            <Text style={styles.welcomeText}>Hola, {user}</Text>
             <View style={styles.statusRow}>
               <View style={styles.onlineDot} />
               <Text style={styles.statusText}>Sistema Online • H2 & Ollama Local</Text>
             </View>
           </View>
           <TouchableOpacity style={styles.logoutBtn} onPress={handleLogout} activeOpacity={0.8}>
-            <Text style={styles.logoutIcon}>🚪</Text>
+            <Text style={styles.logoutIcon}>▪</Text>
             <Text style={styles.logoutText}>Salir</Text>
           </TouchableOpacity>
         </View>
@@ -1893,7 +1893,7 @@ ${kpiStatesExtract}      });
           activeOpacity={0.85}
         >
           <View style={styles.aiBannerLeft}>
-            <Text style={styles.aiBannerBadge}>🧠 IA LOCAL INTEGRADA</Text>
+            <Text style={styles.aiBannerBadge}>IA LOCAL INTEGRADA</Text>
             <Text style={styles.aiBannerTitle}>Asistente Inteligente</Text>
             <Text style={styles.aiBannerDesc}>
               Consulta resúmenes, análisis y datos del sistema con qwen2.5:3b 100% offline.
@@ -1903,7 +1903,7 @@ ${kpiStatesExtract}      });
             </View>
           </View>
           <View style={styles.aiBannerIconWrap}>
-            <Text style={styles.aiBannerIcon}>🤖</Text>
+            <Text style={styles.aiBannerIcon}>▪</Text>
           </View>
         </TouchableOpacity>
 
@@ -1921,11 +1921,11 @@ ${moduleCards}
 
       <View style={styles.bottomBar}>
         <TouchableOpacity style={styles.bottomTab} onPress={() => {}} activeOpacity={0.7}>
-          <Text style={styles.bottomTabIcon}>🏠</Text>
+          <Text style={styles.bottomTabIcon}>▪</Text>
           <Text style={[styles.bottomTabText, styles.bottomTabActiveText]}>Inicio</Text>
         </TouchableOpacity>
 ${bottomNavTabs}        <TouchableOpacity style={styles.bottomTab} onPress={() => navigation.navigate('Chat')} activeOpacity={0.7}>
-          <Text style={styles.bottomTabIcon}>🤖</Text>
+          <Text style={styles.bottomTabIcon}>▪</Text>
           <Text style={[styles.bottomTabText, { color: '#e8c39e' }]}>IA Chat</Text>
         </TouchableOpacity>
       </View>
@@ -2080,7 +2080,7 @@ export function ChatScreen() {
       const errDetail = err && err.message ? String(err.message) : 'Verifica si Ollama está en ejecución';
       const fallbackMsg: Message = {
         role: 'ai',
-        text: '⚠️ Asistente IA no disponible: ' + errDetail,
+        text: 'Asistente IA no disponible: ' + errDetail,
       };
       setMessages(prev => [...prev, fallbackMsg]);
     } finally {
@@ -2236,7 +2236,7 @@ export function DatePickerField({ label, value, onChange, isDateTime }: DatePick
         onPress={() => setModalVisible(true)}
         activeOpacity={0.8}
       >
-        <Text style={styles.calendarIcon}>📅</Text>
+        <Text style={styles.calendarIcon}>▪</Text>
         <Text style={value ? styles.valueText : styles.placeholderText}>
           {value || \`Seleccionar \${label} (AAAA-MM-DD)\`}
         </Text>
@@ -2252,7 +2252,7 @@ export function DatePickerField({ label, value, onChange, isDateTime }: DatePick
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
             <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>📅 Seleccionar Fecha</Text>
+              <Text style={styles.modalTitle}>Seleccionar Fecha</Text>
               <TouchableOpacity onPress={() => setModalVisible(false)}>
                 <Text style={styles.closeBtn}>✕</Text>
               </TouchableOpacity>
@@ -2596,7 +2596,7 @@ ${buildPayload}      };
     <ScrollViewWrapper>
 ${formFields}
       <TouchableOpacity style={styles.saveBtn} onPress={save} disabled={saving}>
-        <Text style={styles.saveText}>{saving ? 'Guardando…' : editing?.id ? '💾 Actualizar' : '💾 Crear'}</Text>
+        <Text style={styles.saveText}>{saving ? 'Guardando…' : editing?.id ? 'Actualizar' : 'Crear'}</Text>
       </TouchableOpacity>
     </ScrollViewWrapper>
   );
@@ -3205,9 +3205,9 @@ class ApiService {
         final data = jsonDecode(utf8.decode(res.bodyBytes));
         return data['reply'] ?? 'Respuesta de la IA recibida.';
       }
-      return '⚠️ Error en asistente (\${res.statusCode}): \${res.body}';
+      return 'Error en asistente (\${res.statusCode}): \${res.body}';
     } catch (e) {
-      return '⚠️ No se pudo contactar con la IA local: \$e';
+      return 'No se pudo contactar con la IA local: \$e';
     }
   }
 }
@@ -3682,7 +3682,7 @@ ${formFieldsWidgets}              const SizedBox(height: 24),
                         child: CircularProgressIndicator(strokeWidth: 2, color: Color(0xFF090D16)),
                       )
                     : Text(
-                        isEdit ? '💾 Actualizar' : '💾 Crear',
+                        isEdit ? 'Actualizar' : 'Crear',
                         style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Color(0xFF090D16)),
                       ),
               ),

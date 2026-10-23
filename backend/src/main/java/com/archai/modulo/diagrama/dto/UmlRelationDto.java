@@ -15,4 +15,5 @@ public class UmlRelationDto {
     private String targetMultiplicity;
     private String sourceRole;
     private String targetRole;
+    private String associationClassId;
 }

@@ -11,7 +11,11 @@ import {
   History,
   UserCircle,
   MoreVertical,
-  FolderKanban
+  FolderKanban,
+  FileOutput,
+  Undo2,
+  Redo2,
+  Keyboard
 } from 'lucide-react';
 import { InformacionSesion } from '../../types/auth';
 import { RolEquipo } from '../../types/rbac';
@@ -25,6 +29,8 @@ interface TopHeaderProps {
   onOpenProjects?: () => void;
   onSelectProjectTitle?: (title: string) => void;
   onExportXmi: () => void;
+  /** CU/EA · Exportar XMI 1.1 nativo de Sparx (con diagrama) para Enterprise Architect. */
+  onExportarEA?: () => void;
   onToggleCodeDock: () => void;
   isCodeDockOpen: boolean;
   onShare: () => void;
@@ -47,6 +53,14 @@ interface TopHeaderProps {
   /** Abrir modal de equipo y permisos */
   onOpenTeamModal?: () => void;
   onOpenMaturityAudit?: () => void;
+  /** Deshacer última acción (Ctrl+Z) */
+  onUndo?: () => void;
+  /** Rehacer última acción (Ctrl+Y) */
+  onRedo?: () => void;
+  canUndo?: boolean;
+  canRedo?: boolean;
+  /** Abrir modal de atajos de teclado (F1 o ?) */
+  onAbrirAtajos?: () => void;
 }
 
 export const TopHeader: React.FC<TopHeaderProps> = ({
@@ -56,6 +70,7 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
   onToggleTheme,
   onOpenProjects,
   onExportXmi,
+  onExportarEA,
   onToggleCodeDock,
   isCodeDockOpen,
   onShare,
@@ -64,12 +79,17 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
   onVersiones,
   onPerfil,
   online = true,
-  onCambiarSala,
+  onCambiarSala: _onCambiarSala,
   maturityScore,
   userRole,
   onQuickRoleChange,
   onOpenTeamModal,
-  onOpenMaturityAudit
+  onOpenMaturityAudit,
+  onUndo,
+  onRedo,
+  canUndo = false,
+  canRedo = false,
+  onAbrirAtajos
 }) => {
   const [activeHoveredUser, setActiveHoveredUser] = useState<string | null>(null);
   const [isMoreMenuOpen, setIsMoreMenuOpen] = useState<boolean>(false);
@@ -230,32 +250,6 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
           />
           <span>{session.roomId || 'LOCAL'}</span>
         </button>
-
-        {/* Botón rápido ARC-GRUPO04 si está en otra sala (solo desktop) */}
-        {session.roomId !== 'ARC-GRUPO04' && onCambiarSala && (
-          <button
-            onClick={() => onCambiarSala('ARC-GRUPO04')}
-            className="btn-studio-glass header-quick-sync-btn"
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: '4px',
-              fontSize: '0.70rem',
-              fontFamily: 'var(--font-mono)',
-              fontWeight: 700,
-              background: '#2f2c79',
-              border: '1px solid #2f2c79',
-              color: '#e8c39e',
-              padding: '3px 8px',
-              borderRadius: '8px',
-              cursor: 'pointer',
-              whiteSpace: 'nowrap'
-            }}
-            title="Conectarse a la sala compartida ARC-GRUPO04"
-          >
-            <span>⚡ ARC-GRUPO04</span>
-          </button>
-        )}
       </div>
 
       {/* ─── Derecha: Guardar + Avatares + Código + Menú Más ─── */}
@@ -303,11 +297,11 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
             }}
             title="Cambiar rol activo para demostración de permisos RBAC en vivo"
           >
-            <option value="Arquitecto de Software">👑 Arquitecto</option>
-            <option value="Desarrollador Backend">💻 Backend</option>
-            <option value="Ingeniero Frontend">🎨 Frontend</option>
-            <option value="Analista QA">🧪 QA Tester</option>
-            <option value="Observador">👁️ Observador</option>
+            <option value="Arquitecto de Software">Arquitecto</option>
+            <option value="Desarrollador Backend">Backend</option>
+            <option value="Ingeniero Frontend">Frontend</option>
+            <option value="Analista QA">QA Tester</option>
+            <option value="Observador">Observador</option>
           </select>
         )}
 
@@ -387,6 +381,48 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
           })}
         </div>
 
+        {/* Botones de Historial: Deshacer y Rehacer */}
+        {onUndo && (
+          <button
+            onClick={onUndo}
+            disabled={!canUndo}
+            className="btn-studio-glass"
+            style={{
+              padding: '6px 9px',
+              fontSize: '0.78rem',
+              fontWeight: 700,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              opacity: canUndo ? 1 : 0.4,
+              cursor: canUndo ? 'pointer' : 'not-allowed'
+            }}
+            title="Deshacer última acción (Ctrl+Z)"
+          >
+            <Undo2 size={14} />
+          </button>
+        )}
+        {onRedo && (
+          <button
+            onClick={onRedo}
+            disabled={!canRedo}
+            className="btn-studio-glass"
+            style={{
+              padding: '6px 9px',
+              fontSize: '0.78rem',
+              fontWeight: 700,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              opacity: canRedo ? 1 : 0.4,
+              cursor: canRedo ? 'pointer' : 'not-allowed'
+            }}
+            title="Rehacer última acción (Ctrl+Y o Ctrl+Shift+Z)"
+          >
+            <Redo2 size={14} />
+          </button>
+        )}
+
         {/* Botón Principal Guardar en Nube (CU-05) */}
         {onGuardarNube && (
           <button
@@ -400,10 +436,19 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
               alignItems: 'center',
               gap: '6px'
             }}
-            title="Guardar el diagrama actual en la nube"
+            title="Guardar el diagrama actual en la nube (Ctrl+S)"
           >
             <Save size={14} />
             <span className="hide-on-mobile">Guardar</span>
+            <kbd style={{
+              fontSize: '0.62rem',
+              opacity: 0.85,
+              background: 'rgba(255, 255, 255, 0.2)',
+              padding: '1px 5px',
+              borderRadius: '4px',
+              fontFamily: 'monospace',
+              fontWeight: 800
+            }}>Ctrl+S</kbd>
           </button>
         )}
 
@@ -484,6 +529,32 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
                 <Download size={14} color="var(--accent-cyan)" />
                 <span>Exportar XMI UML 2.5</span>
               </button>
+
+              {/* Exportar para Enterprise Architect (XMI 1.1 con diagrama) */}
+              {onExportarEA && (
+                <button
+                  onClick={() => {
+                    onExportarEA();
+                    setIsMoreMenuOpen(false);
+                  }}
+                  className="btn-studio-glass"
+                  style={{
+                    justifyContent: 'flex-start',
+                    border: 'none',
+                    padding: '8px 12px',
+                    fontSize: '0.78rem',
+                    gap: '8px',
+                    textAlign: 'left'
+                  }}
+                  title="Exportar XMI 1.1 nativo de Sparx con geometría, layout de diagrama y conectores"
+                >
+                  <FileOutput size={14} color="var(--accent-cyan)" />
+                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', minWidth: 0 }}>
+                    <span style={{ fontWeight: 700, color: 'var(--text-primary)' }}>Exportar para Enterprise Architect</span>
+                    <span style={{ fontSize: '0.66rem', color: 'var(--accent-cyan)', fontWeight: 600 }}>XMI 1.1 con Diagrama, Layout y Conectores</span>
+                  </div>
+                </button>
+              )}
 
               {/* Versiones */}
               {onVersiones && (
@@ -613,6 +684,30 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
                 >
                   <UserCircle size={14} />
                   <span>Mi Perfil ({session.currentUser?.name?.split(' ')[0]})</span>
+                </button>
+              )}
+
+              {/* Atajos de Teclado */}
+              {onAbrirAtajos && (
+                <button
+                  onClick={() => {
+                    onAbrirAtajos();
+                    setIsMoreMenuOpen(false);
+                  }}
+                  className="btn-studio-glass"
+                  style={{
+                    justifyContent: 'flex-start',
+                    border: 'none',
+                    padding: '8px 12px',
+                    fontSize: '0.78rem',
+                    gap: '8px'
+                  }}
+                >
+                  <Keyboard size={14} color="#38bdf8" />
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%' }}>
+                    <span>Atajos de Teclado</span>
+                    <kbd style={{ fontSize: '0.65rem', opacity: 0.7, background: 'rgba(255,255,255,0.1)', padding: '1px 5px', borderRadius: '3px', fontFamily: 'monospace' }}>F1 o ?</kbd>
+                  </div>
                 </button>
               )}
 

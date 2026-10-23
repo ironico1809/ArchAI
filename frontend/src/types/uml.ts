@@ -37,7 +37,8 @@ export type TipoRelacion =
   | 'REALIZATION'
   | 'DEPENDENCY'
   | 'USAGE'
-  | 'PACKAGE_IMPORT';
+  | 'PACKAGE_IMPORT'
+  | 'ASSOCIATION_CLASS';
 
 export interface RelacionUml {
   id: string;
@@ -49,6 +50,7 @@ export interface RelacionUml {
   label?: string;
   sourceRole?: string;        // UML 2.5: Rol del extremo origen (ej. +autor)
   targetRole?: string;        // UML 2.5: Rol del extremo destino (ej. +revisor)
+  associationClassId?: string; // UML 2.5: ID de la clase asociativa vinculada con línea discontinua
 }
 
 export type EstereotipoUml = 

@@ -1,11 +1,11 @@
 import React, { useState } from 'react';
 import { 
-  X, 
   ShieldCheck, 
   Check,
   KeyRound
 } from 'lucide-react';
 import { RolEquipo, PermisosUsuario, MiembroEquipo, obtenerPermisosRol } from '../../types/rbac';
+import { GlassModal } from '../glass/GlassModal';
 
 interface ModalGestionEquipoProps {
   isOpen: boolean;
@@ -61,78 +61,18 @@ export const ModalGestionEquipo: React.FC<ModalGestionEquipoProps> = ({
   };
 
   return (
-    <div style={{
-      position: 'fixed',
-      inset: 0,
-      background: 'rgba(0, 0, 0, 0.72)',
-      backdropFilter: 'blur(10px)',
-      WebkitBackdropFilter: 'blur(10px)',
-      display: 'flex',
-      alignItems: 'center',
-      justifyContent: 'center',
-      zIndex: 120,
-      padding: '16px'
-    }}>
-      <div style={{
-        background: 'var(--glass-surface-elevated)',
-        border: '1px solid var(--glass-border-color)',
-        borderRadius: '16px',
-        width: '100%',
-        maxWidth: '820px',
-        maxHeight: '90vh',
-        display: 'flex',
-        flexDirection: 'column',
-        boxShadow: '0 25px 60px rgba(0, 0, 0, 0.5), 0 0 30px var(--glow-cyan)',
-        overflow: 'hidden'
-      }}>
-        {/* Encabezado */}
-        <div style={{
-          padding: '16px 22px',
-          borderBottom: '1px solid var(--glass-border-color)',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          background: 'rgba(255, 255, 255, 0.02)'
-        }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-            <div style={{
-              width: '36px',
-              height: '36px',
-              borderRadius: '10px',
-              background: '#2f2c79',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              color: '#f5e1ce'
-            }}>
-              <ShieldCheck size={20} />
-            </div>
-            <div>
-              <h2 style={{ fontSize: '1.05rem', fontWeight: 800, color: 'var(--text-primary)', margin: 0 }}>
-                Control de Acceso y Gestión de Equipo (RBAC)
-              </h2>
-              <p style={{ fontSize: '0.74rem', color: 'var(--text-muted)', margin: 0 }}>
-                Asignación de roles por área y permisos granulares de modelado y código
-              </p>
-            </div>
-          </div>
-
-          <button
-            onClick={onClose}
-            style={{
-              background: 'transparent',
-              border: 'none',
-              color: 'var(--text-muted)',
-              cursor: 'pointer',
-              padding: '6px',
-              borderRadius: '8px'
-            }}
-          >
-            <X size={18} />
-          </button>
-        </div>
-
-        {/* Cuerpo Dividido en 2 Columnas */}
+    <GlassModal
+      isOpen={isOpen}
+      onClose={onClose}
+      title="Control de Acceso y Gestión de Equipo (RBAC)"
+      subtitle="Asignación de roles por área y permisos granulares de modelado y código"
+      icon={<ShieldCheck size={20} color="#e8c39e" />}
+      iconBg="#2f2c79"
+      maxWidth="840px"
+      zIndex={1250}
+      bodyStyle={{ padding: 0, overflow: 'hidden' }}
+    >
+      {/* Cuerpo Dividido en 2 Columnas */}
         <div style={{
           display: 'grid',
           gridTemplateColumns: '280px 1fr',
@@ -276,12 +216,12 @@ export const ModalGestionEquipo: React.FC<ModalGestionEquipoProps> = ({
                       cursor: 'pointer'
                     }}
                   >
-                    <option value="Arquitecto de Software">👑 Arquitecto de Software</option>
-                    <option value="Líder Técnico">⚡ Líder Técnico</option>
-                    <option value="Desarrollador Backend">💻 Desarrollador Backend</option>
-                    <option value="Ingeniero Frontend">🎨 Ingeniero Frontend</option>
-                    <option value="Analista QA">🧪 Analista QA / Tester</option>
-                    <option value="Observador">👁️ Observador (Solo Lectura)</option>
+                    <option value="Arquitecto de Software">Arquitecto de Software</option>
+                    <option value="Líder Técnico">Líder Técnico</option>
+                    <option value="Desarrollador Backend">Desarrollador Backend</option>
+                    <option value="Ingeniero Frontend">Ingeniero Frontend</option>
+                    <option value="Analista QA">Analista QA / Tester</option>
+                    <option value="Observador">Observador (Solo Lectura)</option>
                   </select>
                 </div>
               </div>
@@ -465,7 +405,6 @@ export const ModalGestionEquipo: React.FC<ModalGestionEquipoProps> = ({
             </div>
           )}
         </div>
-      </div>
-    </div>
+    </GlassModal>
   );
 };

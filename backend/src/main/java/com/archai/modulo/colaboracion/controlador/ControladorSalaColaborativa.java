@@ -24,7 +24,7 @@ public class ControladorSalaColaborativa {
     /** CU-03 · Paso 1: el anfitrión crea la sala y recibe el PIN. */
     @PostMapping({"/salas", "/rooms", "/crear-sala"})
     public ResponseEntity<InfoSesionDto> crearSala(@RequestBody CrearSalaSolicitudDto solicitud) {
-        return ResponseEntity.ok(servicioSalaColaborativa.crearSala(solicitud.getNombreSala(), solicitud.getAnfitrion()));
+        return ResponseEntity.ok(servicioSalaColaborativa.crearSala(solicitud.getNombreSala(), solicitud.getAnfitrion(), solicitud.getPin()));
     }
 
     /** CU-03 · Paso 2: un colaborador se une con el PIN compartido. */

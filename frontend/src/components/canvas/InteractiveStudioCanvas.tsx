@@ -1,57 +1,48 @@
-import React, { useState, useRef, useEffect, useMemo } from 'react';
-import { 
-  Plus, 
-  Trash2, 
-  Key, 
-  X, 
-  Check, 
-  ZoomIn, 
-  ZoomOut, 
+import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react';
+import {
+  Plus,
+  Trash2,
+  X,
+  ZoomIn,
+  ZoomOut,
   Sparkles,
   LayoutGrid,
   Link as LinkIcon,
   Link2,
-  Edit2,
   Zap,
-  Layers,
   Palette,
-  Box,
-  FileCode,
-  Database,
   CheckCircle2,
-  ChevronUp, 
-  ChevronDown, 
-  Camera, 
-  Lock, 
+  ChevronUp,
+  ChevronDown,
+  Camera,
+  Lock,
   Maximize2,
-  CircleDot,
-  Code2,
-  ListFilter,
-  PackageOpen,
-  StickyNote,
-  Server,
   Boxes,
-  FolderOpen,
-  Hash
+  Mouse,
+  ShoppingCart,
+  HeartPulse,
+  GraduationCap,
+  ShieldCheck,
+  Package,
+  BookOpen,
+  Building2,
+  Settings,
+  ArrowUpDown
 } from 'lucide-react';
 import { ModeloDiagrama, ClaseUml, AtributoUml, MetodoUml, RelacionUml, Visibilidad, TipoRelacion } from '../../types/uml';
 import { InformacionSesion } from '../../types/auth';
 import { PLANTILLAS_DISPONIBLES, instanciarPlantilla } from '../../services/plantillasDominio';
-import { calcularMadurezClase } from '../../services/softwareMaturity';
 import { PermisosUsuario } from '../../types/rbac';
 import { ToolboxUml25, DefClasificadorUml, DefPatronUml } from '../lienzo/ToolboxUml25';
+import { inferirTablaIntermedia, inferirDireccionMaestroTransaccion, esClaseAsociativaUniversal, sanitizarDiagramaUML25 } from '../../services/semanticDomainEngine';
+import { IntermediateTableDecomposerModal } from './IntermediateTableDecomposerModal';
+import { ExtractSuperclassModal } from './ExtractSuperclassModal';
+import { GlassModal } from '../glass/GlassModal';
 
-/** Helper para inferir tipo reactivamente según el nombre del atributo */
-const inferirTipoAtributo = (nombre: string): AtributoUml['type'] => {
-  const n = nombre.toLowerCase().trim();
-  if (/^(id|codigo|cod)$/i.test(n) || /id$/i.test(n)) return 'Long';
-  if (/precio|total|monto|saldo|costo|subtotal|iva|tarifa|comision|arancel/i.test(n)) return 'Double';
-  if (/cantidad|stock|edad|numero|num|orden|mes|anio|year|prioridad|puntos|intentos|semestre/i.test(n)) return 'Integer';
-  if (/fecha|nacimiento|fec|periodo/i.test(n)) return 'LocalDate';
-  if (/hora|tiempo|creado|actualizado|timestamp|horario|registro|expiracion/i.test(n)) return 'LocalDateTime';
-  if (/activo|habilitado|es|tiene|borrado|vigente|valido|pagado|completado|bloqueado/i.test(n)) return 'Boolean';
-  return 'String';
-};
+import { CanvasBackdrop } from './CanvasBackdrop';
+import { SvgDefs } from './SvgDefs';
+import { RelationLayer } from './RelationLayer';
+import { UmlNodeCard } from './UmlNodeCard';
 
 interface InteractiveStudioCanvasProps {
   diagram: ModeloDiagrama;
@@ -88,6 +79,16 @@ interface InteractiveStudioCanvasProps {
   userPermissions?: PermisosUsuario;
   userRole?: string;
   onAutoCompletarClase?: (classId: string) => void;
+  /** Atajos de teclado e historial universal */
+  onUndo?: () => void;
+  onRedo?: () => void;
+  canUndo?: boolean;
+  canRedo?: boolean;
+  onSaveShortcut?: () => void;
+  onOpenShortcutsModal?: () => void;
+  onCopyClass?: () => void;
+  onPasteClass?: () => void;
+  onDuplicateClass?: () => void;
 }
 
 const PALETTE_COLORS = [
@@ -129,10 +130,26 @@ export const InteractiveStudioCanvas: React.FC<InteractiveStudioCanvasProps> = (
   isAiAssistantOpen,
   userPermissions,
   userRole,
-  onAutoCompletarClase
+  onAutoCompletarClase,
+  onUndo,
+  onRedo,
+  onSaveShortcut,
+  onOpenShortcutsModal,
+  onCopyClass,
+  onPasteClass,
+  onDuplicateClass
 }) => {
   const [zoom, setZoom] = useState<number>(1);
   const [pan, setPan] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
+  // Modo de rueda de ratón: 'zoom' (la rueda hace zoom directamente) o 'pan' (la rueda desplaza el lienzo; Ctrl+rueda hace zoom)
+  const [wheelZoomMode, setWheelZoomMode] = useState<'zoom' | 'pan'>(() => {
+    try {
+      const saved = localStorage.getItem('archai_wheel_zoom_mode');
+      return saved === 'pan' ? 'pan' : 'zoom';
+    } catch {
+      return 'zoom';
+    }
+  });
   const [isPanning, setIsPanning] = useState<boolean>(false);
   const [draggingClassId, setDraggingClassId] = useState<string | null>(null);
 
@@ -186,7 +203,43 @@ export const InteractiveStudioCanvas: React.FC<InteractiveStudioCanvasProps> = (
 
   // Connection Linking mode state
   const [connectingSourceId, setConnectingSourceId] = useState<string | null>(null);
+  const [connectingMousePos, setConnectingMousePos] = useState<{ x: number; y: number } | null>(null);
   const [selectedRelationType, setSelectedRelationType] = useState<TipoRelacion>('ASSOCIATION_1_N');
+  const [isRelationMode, setIsRelationMode] = useState<boolean>(false);
+
+  // Toast flotante reactivo para confirmaciones en lienzo (descomposición N:M, etc.)
+  const [canvasToast, setCanvasToast] = useState<string | null>(null);
+  const canvasToastTimerRef = useRef<any>(null);
+
+  const showCanvasToast = (msg: string) => {
+    if (canvasToastTimerRef.current) clearTimeout(canvasToastTimerRef.current);
+    setCanvasToast(msg);
+    canvasToastTimerRef.current = setTimeout(() => {
+      setCanvasToast(null);
+    }, 4500);
+  };
+
+  // Estados de interacción con relaciones (hover, selección y eliminación rápida)
+  const [hoveredRelationId, setHoveredRelationId] = useState<string | null>(null);
+  const [selectedRelationId, setSelectedRelationId] = useState<string | null>(null);
+  const [relationBarPosition, setRelationBarPosition] = useState<'top' | 'bottom'>('top');
+  const [isRelationBarCollapsed, setIsRelationBarCollapsed] = useState<boolean>(false);
+
+  // Estado de arrastre activo sobre el lienzo (feedback visual de soltar)
+  const [isDragOverCanvas, setIsDragOverCanvas] = useState<boolean>(false);
+
+  // Dimensiones reales medidas de cada nodo UML para calcular anclajes perfectos que nunca corten las tarjetas
+  const nodeDimensionsRef = useRef<Map<string, { w: number; h: number }>>(new Map());
+  const [dimensionTick, setDimensionTick] = useState<number>(0);
+
+  // Refs sincronizados para atajos de teclado sin stale-closures
+  const selectedRelationIdRef = useRef<string | null>(null);
+  const selectedClassIdRef = useRef<string | null>(null);
+  const editingClassIdRef = useRef<string | null>(null);
+
+  useEffect(() => { selectedRelationIdRef.current = selectedRelationId; }, [selectedRelationId]);
+  useEffect(() => { selectedClassIdRef.current = selectedClassId; }, [selectedClassId]);
+  useEffect(() => { editingClassIdRef.current = editingClassId; }, [editingClassId]);
 
   // Triggers externos desde la paleta vertical
   useEffect(() => {
@@ -198,43 +251,52 @@ export const InteractiveStudioCanvas: React.FC<InteractiveStudioCanvasProps> = (
   }, [openTemplatesTrigger]);
 
   useEffect(() => {
-    if (openConnectTrigger && diagram.classes.length > 0) {
-      setConnectingSourceId(diagram.classes[0].id);
+    if (openConnectTrigger) {
+      setIsRelationMode(true);
+      if (selectedClassId) {
+        setConnectingSourceId(selectedClassId);
+      } else {
+        setConnectingSourceId(null);
+      }
     }
-  }, [openConnectTrigger, diagram.classes]);
+  }, [openConnectTrigger, selectedClassId]);
 
   useEffect(() => {
     if (openAutoOrganizeTrigger) handleAutoOrganize();
   }, [openAutoOrganizeTrigger]);
 
-  // Ref to local user cursor element for zero-latency direct transform (avoids full component re-render on every mousemove)
-  const myCursorRef = useRef<HTMLDivElement>(null);
-  // Tracks when mouse is over a UI overlay panel (Toolbox, etc.) so mousemove doesn't re-show the custom cursor
+  // Helper unificado para eliminar relaciones de forma segura (con callback o directo al modelo)
+  const handleDeleteRelationSafe = (relationId: string) => {
+    if (onDeleteRelation) {
+      onDeleteRelation(relationId);
+    } else {
+      onUpdateDiagram({
+        ...diagram,
+        relations: diagram.relations.filter(r => r.id !== relationId),
+        updatedAt: new Date().toISOString()
+      });
+    }
+    if (selectedRelationIdRef.current === relationId || selectedRelationId === relationId) {
+      setSelectedRelationId(null);
+      selectedRelationIdRef.current = null;
+    }
+  };
+
+  // Tracks when mouse is over a UI overlay panel (Toolbox, etc.) so canvas wheel zoom doesn't interfere
   const isMouseOverUiPanel = useRef<boolean>(false);
-
-  // Temporary Name Tag on Cursor state (auto-fades to avoid obstructing the screen)
-  const [showNameTag, setShowNameTag] = useState<boolean>(true);
-  const nameTagTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  useEffect(() => {
-    setShowNameTag(true);
-    if (nameTagTimerRef.current) clearTimeout(nameTagTimerRef.current);
-    nameTagTimerRef.current = setTimeout(() => {
-      setShowNameTag(false);
-    }, 2200);
-    return () => {
-      if (nameTagTimerRef.current) clearTimeout(nameTagTimerRef.current);
-    };
-  }, [session.currentUser?.avatarColor]);
 
   // Color picker popover state
   const [showColorPicker, setShowColorPicker] = useState<boolean>(false);
 
+  // Modales interactivos de personalización arquitectónica manual (UML 2.5 / 3FN)
+  const [decomposerModalData, setDecomposerModalData] = useState<{ srcClass: ClaseUml; tgtClass: ClaseUml; relIdToRemove?: string } | null>(null);
+  const [extractSuperclassClasses, setExtractSuperclassClasses] = useState<ClaseUml[] | null>(null);
+
   // Cursores de colaboradores remotos en vivo (CU-03 · STOMP)
-  // Únicamente se muestran los cursores de compañeros REALES transmitidos por WebSocket
+  // Únicamente se muestran los cursores de compañeros REALES transmitidos por WebSocket (nunca el propio)
   const activeRemoteCursors = useMemo(() => {
-    return remoteCursors || [];
-  }, [remoteCursors]);
+    return (remoteCursors || []).filter(c => c.id !== session.currentUser?.id);
+  }, [remoteCursors, session.currentUser?.id]);
 
   const canvasRef = useRef<HTMLDivElement>(null);
 
@@ -248,12 +310,72 @@ export const InteractiveStudioCanvas: React.FC<InteractiveStudioCanvasProps> = (
   const panRef = useRef(pan);
   const zoomRef = useRef(zoom);
   const dragPosRef = useRef<{ x: number; y: number } | null>(null);
+  // Cooldown para evitar que el evento mousedown fantasma tras un drop inicie un paneo no deseado
+  const lastDropTimeRef = useRef<number>(0);
 
   // Colaboración en vivo (CU-03): throttle para publicar el diagrama DURANTE el arrastre
   const lastLivePublishRef = useRef<number>(0);
 
   useEffect(() => { panRef.current = pan; }, [pan]);
   useEffect(() => { zoomRef.current = zoom; }, [zoom]);
+
+  // Refs sincronizados para callbacks de atajos de teclado sin stale-closures
+  const onUndoRef = useRef(onUndo);
+  const onRedoRef = useRef(onRedo);
+  const onSaveShortcutRef = useRef(onSaveShortcut);
+  const onOpenShortcutsModalRef = useRef(onOpenShortcutsModal);
+  const onCopyClassRef = useRef(onCopyClass);
+  const onPasteClassRef = useRef(onPasteClass);
+  const onDuplicateClassRef = useRef(onDuplicateClass);
+  const diagramStateRef = useRef(diagram);
+  const onUpdateDiagramRef = useRef(onUpdateDiagram);
+
+  useEffect(() => { onUndoRef.current = onUndo; }, [onUndo]);
+  useEffect(() => { onRedoRef.current = onRedo; }, [onRedo]);
+  useEffect(() => { onSaveShortcutRef.current = onSaveShortcut; }, [onSaveShortcut]);
+  useEffect(() => { onOpenShortcutsModalRef.current = onOpenShortcutsModal; }, [onOpenShortcutsModal]);
+  useEffect(() => { onCopyClassRef.current = onCopyClass; }, [onCopyClass]);
+  useEffect(() => { onPasteClassRef.current = onPasteClass; }, [onPasteClass]);
+  useEffect(() => { onDuplicateClassRef.current = onDuplicateClass; }, [onDuplicateClass]);
+  useEffect(() => { diagramStateRef.current = diagram; }, [diagram]);
+  useEffect(() => { onUpdateDiagramRef.current = onUpdateDiagram; }, [onUpdateDiagram]);
+
+  // Sincronizar ref de modo rueda de ratón ('zoom' | 'pan') y persistir en localStorage
+  const wheelZoomModeRef = useRef(wheelZoomMode);
+  useEffect(() => {
+    wheelZoomModeRef.current = wheelZoomMode;
+    try {
+      localStorage.setItem('archai_wheel_zoom_mode', wheelZoomMode);
+    } catch {
+      // ignore
+    }
+  }, [wheelZoomMode]);
+
+  // Zoom centrado en el viewport (para dock + / - y atajos Ctrl + / -)
+  const handleZoomStep = (delta: number) => {
+    if (!canvasRef.current) return;
+    const rect = canvasRef.current.getBoundingClientRect();
+    const centerX = rect.width / 2;
+    const centerY = rect.height / 2;
+
+    const currentZoom = zoomRef.current;
+    const currentPan = panRef.current;
+
+    const nextZoom = Math.max(0.05, Math.min(4.0, Number((currentZoom + delta).toFixed(2))));
+    if (nextZoom === currentZoom) return;
+
+    const worldX = (centerX - currentPan.x) / currentZoom;
+    const worldY = (centerY - currentPan.y) / currentZoom;
+
+    const nextPanX = Math.round(centerX - worldX * nextZoom);
+    const nextPanY = Math.round(centerY - worldY * nextZoom);
+
+    zoomRef.current = nextZoom;
+    panRef.current = { x: nextPanX, y: nextPanY };
+
+    setZoom(nextZoom);
+    setPan({ x: nextPanX, y: nextPanY });
+  };
 
   // Atajo de teclado: Mantener barra espaciadora para paneo ultra fluido estilo Figma/Miro
   const [isSpacePressed, setIsSpacePressed] = useState<boolean>(false);
@@ -262,10 +384,140 @@ export const InteractiveStudioCanvas: React.FC<InteractiveStudioCanvasProps> = (
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
       const activeTag = (document.activeElement as HTMLElement)?.tagName;
-      if (['INPUT', 'TEXTAREA', 'SELECT'].includes(activeTag)) return;
+      const isInputFocused = ['INPUT', 'TEXTAREA', 'SELECT'].includes(activeTag);
+
+      // 1. Guardar: Ctrl+S funciona SIEMPRE (incluso con foco en un input) y previene guardar HTML del navegador
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') {
+        e.preventDefault();
+        e.stopPropagation();
+        onSaveShortcutRef.current?.();
+        return;
+      }
+
+      // Si el usuario está escribiendo texto en un input/textarea, no interceptar atajos de edición de nodos
+      if (isInputFocused) return;
+
+      // 2. Deshacer: Ctrl+Z (sin Shift)
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z' && !e.shiftKey) {
+        e.preventDefault();
+        onUndoRef.current?.();
+        return;
+      }
+
+      // 3. Rehacer: Ctrl+Y o Ctrl+Shift+Z
+      if (
+        ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'y') ||
+        ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key.toLowerCase() === 'z')
+      ) {
+        e.preventDefault();
+        onRedoRef.current?.();
+        return;
+      }
+
+      // 4. Copiar Clase: Ctrl+C
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'c') {
+        onCopyClassRef.current?.();
+        return;
+      }
+
+      // 5. Pegar Clase: Ctrl+V
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'v') {
+        onPasteClassRef.current?.();
+        return;
+      }
+
+      // 6. Duplicar Clase: Ctrl+D
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'd') {
+        e.preventDefault();
+        onDuplicateClassRef.current?.();
+        return;
+      }
+
+      // 7. Zoom: Ctrl + + / =
+      if ((e.ctrlKey || e.metaKey) && (e.key === '=' || e.key === '+')) {
+        e.preventDefault();
+        handleZoomStep(0.15);
+        return;
+      }
+
+      // 8. Zoom: Ctrl + -
+      if ((e.ctrlKey || e.metaKey) && e.key === '-') {
+        e.preventDefault();
+        handleZoomStep(-0.15);
+        return;
+      }
+
+      // 9. Zoom: Ctrl + 0 (Reset al 100%)
+      if ((e.ctrlKey || e.metaKey) && e.key === '0') {
+        e.preventDefault();
+        setZoom(1);
+        setPan({ x: 0, y: 0 });
+        return;
+      }
+
+      // 9b. Alternar modo de rueda del ratón (Zoom continuo vs Desplazamiento): Alt + M
+      if (e.altKey && e.key.toLowerCase() === 'm') {
+        e.preventDefault();
+        setWheelZoomMode(m => m === 'zoom' ? 'pan' : 'zoom');
+        return;
+      }
+
+      // 10. Ayuda de atajos: F1 o ?
+      if (e.key === 'F1' || e.key === '?') {
+        e.preventDefault();
+        onOpenShortcutsModalRef.current?.();
+        return;
+      }
+
+      // 11. Barra espaciadora para paneo ultra fluido estilo Figma/Miro
       if (e.code === 'Space' && !isSpacePressedRef.current) {
         isSpacePressedRef.current = true;
         setIsSpacePressed(true);
+      }
+
+      // 12. Micro-desplazamiento con teclas de flecha (Nudge de 8px o 40px con Shift)
+      if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key) && selectedClassIdRef.current && !editingClassIdRef.current) {
+        e.preventDefault();
+        const step = e.shiftKey ? 40 : 8;
+        const dx = e.key === 'ArrowRight' ? step : e.key === 'ArrowLeft' ? -step : 0;
+        const dy = e.key === 'ArrowDown' ? step : e.key === 'ArrowUp' ? -step : 0;
+        const clsId = selectedClassIdRef.current;
+        const currentDiagram = diagramStateRef.current;
+        const targetCls = currentDiagram.classes.find(c => c.id === clsId);
+        if (targetCls) {
+          const currentPos = targetCls.position || { x: 100, y: 100 };
+          const newPos = {
+            x: Math.max(0, currentPos.x + dx),
+            y: Math.max(0, currentPos.y + dy)
+          };
+          onUpdateDiagramRef.current({
+            ...currentDiagram,
+            classes: currentDiagram.classes.map(c => c.id === clsId ? { ...c, position: newPos } : c),
+            updatedAt: new Date().toISOString()
+          });
+        }
+        return;
+      }
+
+      // 13. Suprimir / Retroceso para eliminar la relación o clase seleccionada
+      if (e.key === 'Delete' || e.key === 'Backspace') {
+        if (selectedRelationIdRef.current) {
+          e.preventDefault();
+          handleDeleteRelationSafe(selectedRelationIdRef.current);
+        } else if (selectedClassIdRef.current && !editingClassIdRef.current) {
+          e.preventDefault();
+          onDeleteClass(selectedClassIdRef.current);
+        }
+      } else if (e.key === 'Escape') {
+        setSelectedRelationId(null);
+        selectedRelationIdRef.current = null;
+        setConnectingSourceId(null);
+        setConnectingMousePos(null);
+        setIsRelationMode(false);
+        setCardFastLinkerClassId(null);
+        setAddingAttrClassId(null);
+        setAddingMethodClassId(null);
+        setEditingClassId(null);
       }
     };
 
@@ -284,7 +536,7 @@ export const InteractiveStudioCanvas: React.FC<InteractiveStudioCanvasProps> = (
     };
   }, []);
 
-  // 🚀 Auto-pan continuo al arrastrar una tabla cerca del borde (elimina por completo el "muro")
+  // Auto-pan continuo al arrastrar una tabla cerca del borde (elimina por completo el "muro")
   const autoPanRafRef = useRef<number | null>(null);
   const autoPanVelocityRef = useRef<{ vx: number; vy: number }>({ vx: 0, vy: 0 });
 
@@ -343,17 +595,28 @@ export const InteractiveStudioCanvas: React.FC<InteractiveStudioCanvasProps> = (
 
   // Handle Dragging of UML Class Cards
   const handleClassMouseDown = (e: React.MouseEvent, cls: ClaseUml) => {
+    // Solo permitir iniciar arrastre con el botón izquierdo del ratón
+    if (e.button !== 0) return;
     e.stopPropagation();
 
-    // Si estamos en modo de conexión, hacer clic en esta clase la define como destino
-    if (connectingSourceId) {
+    // Si estamos en modo de conexión
+    if (isRelationMode || connectingSourceId) {
+      if (!connectingSourceId) {
+        // Primer clic: definir clase origen
+        setConnectingSourceId(cls.id);
+        return;
+      }
       if (connectingSourceId !== cls.id) {
         handleCompleteRelation(connectingSourceId, cls.id);
       }
       setConnectingSourceId(null);
+      setConnectingMousePos(null);
+      setIsRelationMode(false);
       return;
     }
 
+    // Deseleccionar cualquier relación activa al interactuar con una tabla
+    setSelectedRelationId(null);
     onSelectClass(cls.id);
 
     // Si el usuario no tiene permisos de edición (ej. Observador), no permitir arrastrar
@@ -380,16 +643,31 @@ export const InteractiveStudioCanvas: React.FC<InteractiveStudioCanvasProps> = (
   };
 
   const handleCanvasMouseDown = (e: React.MouseEvent) => {
+    // Ignorar mousedown espurio/fantasma generado por el navegador tras soltar (drop) un elemento
+    if (Date.now() - lastDropTimeRef.current < 400) {
+      e.preventDefault();
+      e.stopPropagation();
+      return;
+    }
+
     if (e.button === 0 || e.button === 1) {
       const target = e.target as HTMLElement;
       const isInteractive = Boolean(
         target.closest('.uml-class-node') ||
+        target.closest('.uml-relation-interactive') ||
+        target.closest('.relation-action-bar') ||
         target.closest('.glass-dock') ||
         target.closest('.glass-flyout') ||
         target.closest('.glass-command-dock-toggle') ||
+        target.closest('.glass-toolbox-panel') ||
+        target.closest('.glass-toolbox-minimized-trigger') ||
+        target.closest('.collaborative-cursor') ||
+        target.closest('.fast-linker-popover') ||
+        target.closest('.color-picker-popover') ||
         target.closest('button') ||
         target.closest('input') ||
-        target.closest('select')
+        target.closest('select') ||
+        target.closest('textarea')
       );
 
       // Si es botón central, barra espaciadora, o clic en cualquier zona no interactiva del lienzo
@@ -398,7 +676,10 @@ export const InteractiveStudioCanvas: React.FC<InteractiveStudioCanvasProps> = (
           e.preventDefault();
         }
         onSelectClass(null);
+        setSelectedRelationId(null);
         setConnectingSourceId(null);
+        setConnectingMousePos(null);
+        setIsRelationMode(false);
         isPanningRef.current = true;
         setIsPanning(true);
         const startX = e.clientX - panRef.current.x;
@@ -410,24 +691,35 @@ export const InteractiveStudioCanvas: React.FC<InteractiveStudioCanvasProps> = (
 
   const handleMouseMove = (e: React.MouseEvent) => {
     if (!canvasRef.current) return;
+
+    // Auto-recuperación ante desincronización de eventos de ratón:
+    // Si ningún botón físico del ratón está presionado (e.buttons === 0),
+    // es IMPOSIBLE que el usuario esté arrastrando o paneando activamente.
+    // Si quedaron banderas residuales por drops o pérdida de foco, cancelamos de inmediato.
+    if (e.buttons === 0) {
+      if (isPanningRef.current || draggingClassIdRef.current) {
+        handleMouseUp();
+        return;
+      }
+    }
+
     const rect = canvasRef.current.getBoundingClientRect();
 
     const mouseX = e.clientX - rect.left;
     const mouseY = e.clientY - rect.top;
 
-    // Direct cursor movement without triggering full component tree re-renders
-    if (myCursorRef.current) {
-      myCursorRef.current.style.transform = `translate3d(${mouseX - 1}px, ${mouseY - 1}px, 0)`;
-      // El cursor personalizado se muestra siempre (también sobre paneles UI
-      // como la toolbox), ya que el cursor nativo se oculta en el panel.
-      myCursorRef.current.style.display = 'flex';
-    }
-
-    // CU-03 · Emitir coordenadas del ratón en tiempo real al broker STOMP
+    // CU-03 · Emitir coordenadas del ratón en tiempo real al broker STOMP para compañeros remotos
     if (onCursorMove) {
       const worldX = Math.round((mouseX - panRef.current.x) / zoomRef.current);
       const worldY = Math.round((mouseY - panRef.current.y) / zoomRef.current);
       onCursorMove({ x: worldX, y: worldY });
+    }
+
+    // Seguimiento de cursor para la línea elástica de conexión activa (Rubber-band)
+    if (connectingSourceId) {
+      const worldX = Math.round((mouseX - panRef.current.x) / zoomRef.current);
+      const worldY = Math.round((mouseY - panRef.current.y) / zoomRef.current);
+      setConnectingMousePos({ x: worldX, y: worldY });
     }
 
     // Buffer dragging/panning to requestAnimationFrame
@@ -439,7 +731,7 @@ export const InteractiveStudioCanvas: React.FC<InteractiveStudioCanvasProps> = (
         top: rect.top
       };
 
-      // 🚀 Auto-pan continuo al acercarse a los bordes de la pantalla (elimina por completo el "muro")
+      // Auto-pan continuo al acercarse a los bordes de la pantalla (elimina por completo el "muro")
       const EDGE_ZONE = 90;
       const MAX_SPEED = 32;
       let vx = 0;
@@ -529,11 +821,7 @@ export const InteractiveStudioCanvas: React.FC<InteractiveStudioCanvasProps> = (
     }
   };
 
-  const handleMouseEnter = () => {
-    if (myCursorRef.current) {
-      myCursorRef.current.style.display = 'flex';
-    }
-  };
+  const handleMouseEnter = () => {};
 
   const handleMouseUp = () => {
     stopAutoPanLoop();
@@ -594,6 +882,10 @@ export const InteractiveStudioCanvas: React.FC<InteractiveStudioCanvasProps> = (
   useEffect(() => {
     const handleGlobalMouseMove = (e: MouseEvent) => {
       if (!draggingClassIdRef.current && !isPanningRef.current) return;
+      if (e.buttons === 0) {
+        handleMouseUp();
+        return;
+      }
       handleMouseMove(e as unknown as React.MouseEvent);
     };
     const handleGlobalMouseUp = () => {
@@ -601,19 +893,22 @@ export const InteractiveStudioCanvas: React.FC<InteractiveStudioCanvasProps> = (
         handleMouseUp();
       }
     };
+    const handleGlobalBlur = () => {
+      if (draggingClassIdRef.current || isPanningRef.current) {
+        handleMouseUp();
+      }
+    };
     window.addEventListener('mousemove', handleGlobalMouseMove);
     window.addEventListener('mouseup', handleGlobalMouseUp);
+    window.addEventListener('blur', handleGlobalBlur);
     return () => {
       window.removeEventListener('mousemove', handleGlobalMouseMove);
       window.removeEventListener('mouseup', handleGlobalMouseUp);
+      window.removeEventListener('blur', handleGlobalBlur);
     };
   }, [diagram, draggingClassId]);
 
-  const handleMouseLeave = () => {
-    if (myCursorRef.current) {
-      myCursorRef.current.style.display = 'none';
-    }
-  };
+  const handleMouseLeave = () => {};
 
   // Doble clic en cualquier zona libre del lienzo para centrar y auto-ajustar inmediatamente a pantalla
   const handleCanvasDoubleClick = (e: React.MouseEvent) => {
@@ -633,7 +928,9 @@ export const InteractiveStudioCanvas: React.FC<InteractiveStudioCanvasProps> = (
     }
   };
 
-  // 🔍 Zoom fluido centrado en la posición del cursor del ratón (Miro/Figma style)
+  // Control dual de rueda de ratón:
+  // - Modo 'zoom' (predeterminado): La rueda hace zoom focal sobre el cursor. Shift+rueda desplaza horizontal. Alt+rueda desplaza vertical.
+  // - Modo 'pan': La rueda desplaza verticalmente y horizontalmente el lienzo. Ctrl+rueda (o gesto trackpad pinch) hace zoom focal continuo.
   useEffect(() => {
     const canvasEl = canvasRef.current;
     if (!canvasEl) return;
@@ -641,22 +938,21 @@ export const InteractiveStudioCanvas: React.FC<InteractiveStudioCanvasProps> = (
     const handleNativeWheel = (e: WheelEvent) => {
       // Si el cursor está sobre un panel flotante (Toolbox, dock, etc.),
       // dejar que el navegador haga scroll nativo dentro del panel
-      // en lugar de hacer zoom del lienzo. Se valida tanto el ref de
-      // hover como el elemento objetivo (protege si el panel se desmonta
-      // dejando el ref obsoleto).
+      // en lugar de interactuar con el lienzo.
       const objetivo = e.target as HTMLElement | null;
       const sobrePanelUi =
         isMouseOverUiPanel.current ||
         (objetivo != null &&
           typeof objetivo.closest === 'function' &&
-          objetivo.closest('.glass-toolbox-panel, .glass-command-dock, .glass-command-dock-toggle, .glass-flyout, .glass-panel'));
+          objetivo.closest('.glass-toolbox-panel, .glass-command-dock, .glass-command-dock-toggle, .glass-flyout, .glass-panel, .modal-backdrop'));
       if (sobrePanelUi) return;
 
       e.preventDefault();
 
       // Desplazamiento horizontal si se mantiene presionada la tecla Shift
       if (e.shiftKey) {
-        const nextPanX = Math.round(panRef.current.x - e.deltaY * 0.85);
+        const delta = Math.abs(e.deltaY) > Math.abs(e.deltaX) ? e.deltaY : e.deltaX;
+        const nextPanX = Math.round(panRef.current.x - delta * 0.85);
         panRef.current = { ...panRef.current, x: nextPanX };
         setPan(prev => ({
           ...prev,
@@ -665,6 +961,37 @@ export const InteractiveStudioCanvas: React.FC<InteractiveStudioCanvasProps> = (
         return;
       }
 
+      const isPinchOrCtrl = e.ctrlKey || e.metaKey;
+      const isZoomMode = wheelZoomModeRef.current === 'zoom';
+
+      // En modo 'zoom', Alt + Rueda permite desplazamiento vertical directo sin cambiar de modo
+      if (isZoomMode && e.altKey) {
+        const nextPanY = Math.round(panRef.current.y - e.deltaY * 0.85);
+        panRef.current = { ...panRef.current, y: nextPanY };
+        setPan(prev => ({
+          ...prev,
+          y: nextPanY
+        }));
+        return;
+      }
+
+      // Determinar si esta interacción debe hacer zoom o desplazamiento (pan):
+      // - Si está en modo 'zoom': Hace zoom continuo focal sobre el cursor.
+      // - Si está en modo 'pan': Solo hace zoom si se presiona Ctrl/Meta (o gesto pinch de trackpad).
+      const shouldZoom = isZoomMode || isPinchOrCtrl;
+
+      if (!shouldZoom) {
+        // MODO DESPLAZAMIENTO (PAN): La rueda desplaza verticalmente (y horizontalmente si hay deltaX)
+        const deltaX = e.deltaX || 0;
+        const deltaY = e.deltaY || 0;
+        const nextPanX = Math.round(panRef.current.x - deltaX * 0.85);
+        const nextPanY = Math.round(panRef.current.y - deltaY * 0.85);
+        panRef.current = { x: nextPanX, y: nextPanY };
+        setPan({ x: nextPanX, y: nextPanY });
+        return;
+      }
+
+      // MODO ZOOM: Zoom fluido focalizado exactamente en las coordenadas del cursor (Miro/Figma style)
       const rect = canvasEl.getBoundingClientRect();
       const mouseX = e.clientX - rect.left;
       const mouseY = e.clientY - rect.top;
@@ -704,32 +1031,6 @@ export const InteractiveStudioCanvas: React.FC<InteractiveStudioCanvasProps> = (
       canvasEl.removeEventListener('wheel', handleNativeWheel);
     };
   }, []);
-
-  // Zoom centrado en la pantalla para botones (+ / -) del dock
-  const handleZoomStep = (delta: number) => {
-    if (!canvasRef.current) return;
-    const rect = canvasRef.current.getBoundingClientRect();
-    const centerX = rect.width / 2;
-    const centerY = rect.height / 2;
-
-    const currentZoom = zoomRef.current;
-    const currentPan = panRef.current;
-
-    const nextZoom = Math.max(0.05, Math.min(4.0, Number((currentZoom + delta).toFixed(2))));
-    if (nextZoom === currentZoom) return;
-
-    const worldX = (centerX - currentPan.x) / currentZoom;
-    const worldY = (centerY - currentPan.y) / currentZoom;
-
-    const nextPanX = Math.round(centerX - worldX * nextZoom);
-    const nextPanY = Math.round(centerY - worldY * nextZoom);
-
-    zoomRef.current = nextZoom;
-    panRef.current = { x: nextPanX, y: nextPanY };
-
-    setZoom(nextZoom);
-    setPan({ x: nextPanX, y: nextPanY });
-  };
 
   // Submit new attribute
   const handleSaveAttribute = (e: React.FormEvent, classId: string) => {
@@ -786,8 +1087,178 @@ export const InteractiveStudioCanvas: React.FC<InteractiveStudioCanvasProps> = (
     });
   };
 
+  // ─── Descomposición N:M en Clase Asociativa (UML 2.5 / 3FN) ───
+  const createIntermediateTableNM = (
+    srcClass: ClaseUml,
+    tgtClass: ClaseUml,
+    existingRelIdToRemove?: string
+  ) => {
+    // Inferencia semántica universal mediante el motor de ontologías de dominio (9 dominios + universal)
+    const sugerencia = inferirTablaIntermedia(srcClass, tgtClass, diagram.classes);
+
+    const srcPos = srcClass.position || { x: 100, y: 100 };
+    const tgtPos = tgtClass.position || { x: 500, y: 100 };
+    const intermediatePos = {
+      x: Math.round((srcPos.x + tgtPos.x) / 2),
+      y: Math.max(srcPos.y, tgtPos.y) + 240
+    };
+
+    const intermediateClass: ClaseUml = {
+      id: sugerencia.id,
+      name: sugerencia.nombreClase,
+      stereotype: 'AssociationClass',
+      isAbstract: false,
+      isInterface: false,
+      position: intermediatePos,
+      attributes: sugerencia.atributos,
+      methods: sugerencia.metodos
+    };
+
+    // En UML 2.5 estándar, la relación de asociación entre las dos entidades principales (ej. Venta y Producto)
+    // se conserva con multiplicidades '*' y '1..*', y se enlaza la Clase Asociativa mediante associationClassId
+    // para trazar la línea punteada reglamentaria.
+    let updatedRelations: RelacionUml[];
+    if (existingRelIdToRemove) {
+      updatedRelations = diagram.relations.map(r => {
+        if (r.id === existingRelIdToRemove) {
+          return {
+            ...r,
+            type: 'ASSOCIATION_N_M' as const,
+            sourceMultiplicity: r.sourceMultiplicity?.includes('*') ? r.sourceMultiplicity : '*',
+            targetMultiplicity: r.targetMultiplicity?.includes('*') ? r.targetMultiplicity : '1..*',
+            associationClassId: intermediateClass.id
+          };
+        }
+        return r;
+      });
+    } else {
+      updatedRelations = [
+        ...diagram.relations,
+        {
+          id: `rel-assoc-${Date.now()}`,
+          sourceClassId: srcClass.id,
+          targetClassId: tgtClass.id,
+          type: 'ASSOCIATION_N_M' as const,
+          sourceMultiplicity: '*',
+          targetMultiplicity: '1..*',
+          associationClassId: intermediateClass.id,
+          label: sugerencia.nombreClase
+        }
+      ];
+    }
+
+    const updatedClasses = [...diagram.classes, intermediateClass];
+
+    onUpdateDiagram({
+      ...diagram,
+      classes: updatedClasses,
+      relations: updatedRelations,
+      updatedAt: new Date().toISOString()
+    });
+
+    onSelectClass(sugerencia.id);
+    setSelectedRelationId(null);
+    selectedRelationIdRef.current = null;
+
+    showCanvasToast(`Tabla intermedia "${sugerencia.nombreClase}" (${sugerencia.dominio}) creada con 2 relaciones 1:N (UML 2.5 / 3FN)`);
+  };
+
+  // Confirmar creación personalizada desde IntermediateTableDecomposerModal
+  const handleConfirmDecomposerModal = (
+    newClass: ClaseUml,
+    _rel1Config: { sourceMultiplicity: string; targetMultiplicity: string; label: string },
+    _rel2Config: { sourceMultiplicity: string; targetMultiplicity: string; label: string }
+  ) => {
+    if (!decomposerModalData) return;
+    const { srcClass, tgtClass, relIdToRemove } = decomposerModalData;
+
+    // UML 2.5: La clase creada es una Clase Asociativa sin ID artificial
+    const intermediateClass: ClaseUml = {
+      ...newClass,
+      stereotype: 'AssociationClass',
+      attributes: (newClass.attributes || []).filter(a => a.name.toLowerCase() !== 'id').map(a => ({ ...a, isPrimaryKey: false, isNullable: true }))
+    };
+
+    let updatedRelations: RelacionUml[];
+    if (relIdToRemove) {
+      updatedRelations = diagram.relations.map(r => {
+        if (r.id === relIdToRemove) {
+          return {
+            ...r,
+            type: 'ASSOCIATION_N_M' as const,
+            sourceMultiplicity: r.sourceMultiplicity?.includes('*') ? r.sourceMultiplicity : '*',
+            targetMultiplicity: r.targetMultiplicity?.includes('*') ? r.targetMultiplicity : '1..*',
+            associationClassId: intermediateClass.id,
+            label: intermediateClass.name
+          };
+        }
+        return r;
+      });
+    } else {
+      updatedRelations = [
+        ...diagram.relations,
+        {
+          id: `rel-assoc-${Date.now()}`,
+          sourceClassId: srcClass.id,
+          targetClassId: tgtClass.id,
+          type: 'ASSOCIATION_N_M' as const,
+          sourceMultiplicity: '*',
+          targetMultiplicity: '1..*',
+          associationClassId: intermediateClass.id,
+          label: intermediateClass.name
+        }
+      ];
+    }
+
+    // Purgar de inmediato cualquier arista binaria hacia la clase asociativa
+    updatedRelations = updatedRelations.filter(r =>
+      r.sourceClassId !== intermediateClass.id && r.targetClassId !== intermediateClass.id
+    );
+
+    const updatedClasses = [...diagram.classes, intermediateClass];
+
+    const finalDiagram = sanitizarDiagramaUML25({
+      ...diagram,
+      classes: updatedClasses,
+      relations: updatedRelations,
+      updatedAt: new Date().toISOString()
+    });
+
+    onUpdateDiagram(finalDiagram);
+
+    onSelectClass(intermediateClass.id);
+    setSelectedRelationId(null);
+    selectedRelationIdRef.current = null;
+    setDecomposerModalData(null);
+    showCanvasToast(`Clase asociativa "${intermediateClass.name}" creada con éxito (UML 2.5)`);
+  };
+
+  // Confirmar extracción de superclase desde ExtractSuperclassModal
+  const handleConfirmExtractSuperclass = (
+    superclass: ClaseUml,
+    updatedSubclasses: ClaseUml[],
+    inheritanceRelations: RelacionUml[]
+  ) => {
+    const updatedSubclassMap = new Map(updatedSubclasses.map(c => [c.id, c]));
+    const nextClasses = diagram.classes.map(c => updatedSubclassMap.get(c.id) || c);
+    nextClasses.push(superclass);
+
+    const nextRelations = [...diagram.relations, ...inheritanceRelations];
+
+    onUpdateDiagram({
+      ...diagram,
+      classes: nextClasses,
+      relations: nextRelations,
+      updatedAt: new Date().toISOString()
+    });
+
+    onSelectClass(superclass.id);
+    setExtractSuperclassClasses(null);
+    showCanvasToast(`Superclase "${superclass.name}" extraída con ${inheritanceRelations.length} relaciones de herencia (──▷)`);
+  };
+
   // Enlace rápido directo desde el popover de la tarjeta
-  const handleFastLinkSubmit = (sourceClassId: string) => {
+  const handleFastLinkSubmit = (sourceClassId: string, customSrcMult?: string, customTgtMult?: string) => {
     if (!fastLinkTargetClassId || sourceClassId === fastLinkTargetClassId) return;
 
     let defaultLabel = 'asocia';
@@ -802,13 +1273,41 @@ export const InteractiveStudioCanvas: React.FC<InteractiveStudioCanvasProps> = (
     else if (fastLinkRelType === 'ASSOCIATION_N_M') defaultLabel = 'vincula';
 
     const isSpecial = ['INHERITANCE', 'REALIZATION', 'DEPENDENCY', 'USAGE', 'PACKAGE_IMPORT', 'ASSOCIATION_BINARY'].includes(fastLinkRelType);
-    const srcMult = isSpecial ? '' : (fastLinkRelType === 'ASSOCIATION_N_M' ? '*' : '1');
-    const tgtMult = isSpecial ? '' : (fastLinkRelType === 'COMPOSITION' ? '1..*' : fastLinkRelType === 'ASSOCIATION_1_1' ? '1' : fastLinkRelType === 'NON_NAVIGABLE' ? '0' : '*');
+    const srcMult = isSpecial ? '' : (customSrcMult !== undefined ? customSrcMult : (fastLinkRelType === 'ASSOCIATION_N_M' ? '*' : '1'));
+    const tgtMult = isSpecial ? '' : (customTgtMult !== undefined ? customTgtMult : (fastLinkRelType === 'COMPOSITION' ? '1..*' : fastLinkRelType === 'ASSOCIATION_1_1' ? '1' : fastLinkRelType === 'NON_NAVIGABLE' ? '0' : '*'));
+
+    // Regla UML 2.5 / 3FN: Si la relación es N:M (o multiplicidad * y *), descomponer automáticamente en tabla intermedia
+    if (fastLinkRelType === 'ASSOCIATION_N_M' || (srcMult === '*' && tgtMult === '*')) {
+      const srcClass = diagram.classes.find(c => c.id === sourceClassId);
+      const tgtClass = diagram.classes.find(c => c.id === fastLinkTargetClassId);
+      if (srcClass && tgtClass) {
+        createIntermediateTableNM(srcClass, tgtClass);
+        setCardFastLinkerClassId(null);
+        setFastLinkTargetClassId('');
+        setFastLinkLabel('');
+        return;
+      }
+    }
+
+    let finalSourceId = sourceClassId;
+    let finalTargetId = fastLinkTargetClassId;
+
+    if (fastLinkRelType === 'ASSOCIATION_1_N') {
+      const srcCls = diagram.classes.find(c => c.id === sourceClassId);
+      const tgtCls = diagram.classes.find(c => c.id === fastLinkTargetClassId);
+      if (srcCls && tgtCls) {
+        const dir = inferirDireccionMaestroTransaccion(srcCls.name, tgtCls.name);
+        if (!dir.origenEsMaestro) {
+          finalSourceId = fastLinkTargetClassId;
+          finalTargetId = sourceClassId;
+        }
+      }
+    }
 
     const newRel: RelacionUml = {
       id: `rel-${Date.now()}`,
-      sourceClassId: sourceClassId,
-      targetClassId: fastLinkTargetClassId,
+      sourceClassId: finalSourceId,
+      targetClassId: finalTargetId,
       type: fastLinkRelType,
       sourceMultiplicity: srcMult,
       targetMultiplicity: tgtMult,
@@ -824,6 +1323,10 @@ export const InteractiveStudioCanvas: React.FC<InteractiveStudioCanvasProps> = (
         updatedAt: new Date().toISOString()
       });
     }
+
+    // Seleccionar automáticamente la nueva relación para desplegar la barra de cardinalidad
+    setSelectedRelationId(newRel.id);
+    selectedRelationIdRef.current = newRel.id;
 
     setCardFastLinkerClassId(null);
     setFastLinkTargetClassId('');
@@ -1051,11 +1554,128 @@ export const InteractiveStudioCanvas: React.FC<InteractiveStudioCanvasProps> = (
     const tgtClass = diagram.classes.find(c => c.id === targetId);
     if (!srcClass || !tgtClass) return;
 
+    // Regla UML 2.5 / 3FN: Si la relación seleccionada es Muchos a Muchos (N:M), descomponer automáticamente en tabla intermedia
+    if (selectedRelationType === 'ASSOCIATION_N_M') {
+      createIntermediateTableNM(srcClass, tgtClass);
+      setConnectingMousePos(null);
+      return;
+    }
+
     let defaultLabel = 'asocia';
     let srcMult = '1';
     let tgtMult = '*';
 
     switch (selectedRelationType) {
+      case 'ASSOCIATION_1_1':
+        defaultLabel = 'asocia';
+        srcMult = '1';
+        tgtMult = '1';
+        break;
+      case 'ASSOCIATION_1_N':
+        defaultLabel = 'asocia';
+        srcMult = '1';
+        tgtMult = '0..*';
+        break;
+      case 'COMPOSITION':
+        defaultLabel = 'compone';
+        srcMult = '1';
+        tgtMult = '1..*';
+        break;
+      case 'AGGREGATION':
+        defaultLabel = 'agrega';
+        srcMult = '1';
+        tgtMult = '0..*';
+        break;
+      case 'INHERITANCE':
+        defaultLabel = 'extiende';
+        srcMult = '';
+        tgtMult = '';
+        break;
+      case 'REALIZATION':
+        defaultLabel = 'implementa';
+        srcMult = '';
+        tgtMult = '';
+        break;
+      case 'DEPENDENCY':
+      case 'USAGE':
+        defaultLabel = '«use»';
+        srcMult = '';
+        tgtMult = '';
+        break;
+      case 'PACKAGE_IMPORT':
+        defaultLabel = '«import»';
+        srcMult = '';
+        tgtMult = '';
+        break;
+      case 'ASSOCIATION_BINARY':
+        defaultLabel = 'asocia';
+        srcMult = '';
+        tgtMult = '';
+        break;
+      case 'NON_NAVIGABLE':
+        defaultLabel = 'no_navegable';
+        srcMult = '1';
+        tgtMult = '0';
+        break;
+    }
+
+    let finalSourceId = sourceId;
+    let finalTargetId = targetId;
+
+    if (selectedRelationType === 'ASSOCIATION_1_N') {
+      const dir = inferirDireccionMaestroTransaccion(srcClass.name, tgtClass.name);
+      if (!dir.origenEsMaestro) {
+        finalSourceId = targetId;
+        finalTargetId = sourceId;
+      }
+    }
+
+    const newRel: RelacionUml = {
+      id: `rel-${Date.now()}`,
+      sourceClassId: finalSourceId,
+      targetClassId: finalTargetId,
+      type: selectedRelationType,
+      sourceMultiplicity: srcMult,
+      targetMultiplicity: tgtMult,
+      label: defaultLabel
+    };
+
+    if (onAddRelation) {
+      onAddRelation(newRel);
+    } else {
+      onUpdateDiagram({
+        ...diagram,
+        relations: [...diagram.relations, newRel],
+        updatedAt: new Date().toISOString()
+      });
+    }
+
+    // Seleccionar automáticamente la nueva relación para gestionar su cardinalidad en la barra superior
+    setSelectedRelationId(newRel.id);
+    selectedRelationIdRef.current = newRel.id;
+  };
+
+  // ─── Gestión Integral de Relaciones y Cardinalidad UML 2.5 ───
+
+  const handleUpdateRelation = (relationId: string, updates: Partial<RelacionUml>) => {
+    const updated = diagram.relations.map(r => {
+      if (r.id !== relationId) return r;
+      return { ...r, ...updates };
+    });
+
+    onUpdateDiagram({
+      ...diagram,
+      relations: updated,
+      updatedAt: new Date().toISOString()
+    });
+  };
+
+  const handleChangeRelationType = (relationId: string, newType: TipoRelacion) => {
+    let defaultLabel = 'asocia';
+    let srcMult = '1';
+    let tgtMult = '*';
+
+    switch (newType) {
       case 'ASSOCIATION_1_1':
         defaultLabel = 'asocia';
         srcMult = '1';
@@ -1114,25 +1734,37 @@ export const InteractiveStudioCanvas: React.FC<InteractiveStudioCanvasProps> = (
         break;
     }
 
-    const newRel: RelacionUml = {
-      id: `rel-${Date.now()}`,
-      sourceClassId: sourceId,
-      targetClassId: targetId,
-      type: selectedRelationType,
+    handleUpdateRelation(relationId, {
+      type: newType,
       sourceMultiplicity: srcMult,
       targetMultiplicity: tgtMult,
       label: defaultLabel
-    };
+    });
+  };
 
-    if (onAddRelation) {
-      onAddRelation(newRel);
-    } else {
-      onUpdateDiagram({
-        ...diagram,
-        relations: [...diagram.relations, newRel],
-        updatedAt: new Date().toISOString()
-      });
-    }
+  const handleInvertRelation = (relationId: string) => {
+    const rel = diagram.relations.find(r => r.id === relationId);
+    if (!rel) return;
+    handleUpdateRelation(relationId, {
+      sourceClassId: rel.targetClassId,
+      targetClassId: rel.sourceClassId,
+      sourceMultiplicity: rel.targetMultiplicity || '1',
+      targetMultiplicity: rel.sourceMultiplicity || '*'
+    });
+  };
+
+  const UML_MULTIPLICITY_CYCLE = ['1', '0..1', '*', '1..*', '0..*'];
+
+  const handleCycleMultiplicity = (relationId: string, end: 'source' | 'target') => {
+    const rel = diagram.relations.find(r => r.id === relationId);
+    if (!rel) return;
+    const current = end === 'source' ? (rel.sourceMultiplicity || '1') : (rel.targetMultiplicity || '*');
+    const idx = UML_MULTIPLICITY_CYCLE.indexOf(current);
+    const next = idx >= 0 ? UML_MULTIPLICITY_CYCLE[(idx + 1) % UML_MULTIPLICITY_CYCLE.length] : '1';
+
+    handleUpdateRelation(relationId, {
+      [end === 'source' ? 'sourceMultiplicity' : 'targetMultiplicity']: next
+    });
   };
 
   // ─── Handlers de la Toolbox UML 2.5+ ───
@@ -1193,10 +1825,12 @@ export const InteractiveStudioCanvas: React.FC<InteractiveStudioCanvasProps> = (
 
   const handleActivateRelationFromToolbox = (relType: TipoRelacion) => {
     setSelectedRelationType(relType);
+    setIsRelationMode(true);
     if (selectedClassId) {
       setConnectingSourceId(selectedClassId);
-    } else if (diagram.classes.length > 0) {
-      setConnectingSourceId(diagram.classes[0].id);
+    } else {
+      // Dejar que el usuario elija libremente la clase origen con el primer clic
+      setConnectingSourceId(null);
     }
   };
 
@@ -1215,22 +1849,51 @@ export const InteractiveStudioCanvas: React.FC<InteractiveStudioCanvasProps> = (
   };
 
   const handleCanvasDragOver = (e: React.DragEvent) => {
-    if (e.dataTransfer.types.includes('application/archai-toolbox')) {
-      e.preventDefault();
-      e.dataTransfer.dropEffect = 'copy';
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'copy';
+    if (isPanningRef.current) {
+      isPanningRef.current = false;
+      setIsPanning(false);
+    }
+    if (!isDragOverCanvas) {
+      setIsDragOverCanvas(true);
+    }
+  };
+
+  const handleCanvasDragLeave = (e: React.DragEvent) => {
+    if (e.currentTarget === e.target) {
+      setIsDragOverCanvas(false);
     }
   };
 
   const handleCanvasDrop = (e: React.DragEvent) => {
-    const rawData = e.dataTransfer.getData('application/archai-toolbox');
-    if (!rawData) return;
     e.preventDefault();
+    e.stopPropagation();
+    lastDropTimeRef.current = Date.now();
+    setIsDragOverCanvas(false);
+
+    // Resetear inmediatamente cualquier arrastre o paneo residual
+    isPanningRef.current = false;
+    setIsPanning(false);
+    draggingClassIdRef.current = null;
+    setDraggingClassId(null);
+    lastMoveRef.current = null;
+    dragPosRef.current = null;
+    stopAutoPanLoop();
+    onDragStateChange?.(false);
+
+    let rawData = e.dataTransfer.getData('application/archai-toolbox');
+    if (!rawData) {
+      rawData = e.dataTransfer.getData('text/plain');
+    }
+    if (!rawData) return;
     try {
       const { type, item } = JSON.parse(rawData);
       const rect = canvasRef.current?.getBoundingClientRect();
       if (!rect) return;
-      const dropX = Math.round((e.clientX - rect.left - pan.x) / zoom);
-      const dropY = Math.round((e.clientY - rect.top - pan.y) / zoom);
+      // Centrar el elemento exactamente debajo del cursor (tarjeta de 330px de ancho y ~160px de alto)
+      const dropX = Math.round((e.clientX - rect.left - pan.x) / zoom) - 165;
+      const dropY = Math.round((e.clientY - rect.top - pan.y) / zoom) - 40;
 
       if (type === 'classifier') {
         const baseName = item.name?.replace(/[^a-zA-Z0-9]/g, '') || 'Clase';
@@ -1478,95 +2141,381 @@ export const InteractiveStudioCanvas: React.FC<InteractiveStudioCanvasProps> = (
     );
   }, [diagram.classes, draggingClassId, dragPos]);
 
-  // Calculate SVG connector paths dynamically with ultra-smooth cubic bezier S-curves
+  // Calculate SVG connector paths dynamically with ultra-smooth cubic bezier S-curves and true node bounding boxes
   const relationPaths = useMemo(() => {
-    const classMap = new Map<string, { x: number; y: number; w: number; h: number }>();
+    // Helper para estimar altura si el elemento aún no ha sido medido en el DOM
+    const estimarAlturaFallback = (cls: ClaseUml, totalRelaciones: number): number => {
+      const attrCount = cls.attributes?.length || 0;
+      const methodCount = cls.methods?.length || 0;
+      const headerH = 78;
+      const attrH = 34 + attrCount * 30;
+      const methodH = 34 + methodCount * 30;
+      const connH = totalRelaciones > 0 ? (28 + totalRelaciones * 28 + 8) : 0;
+      return Math.max(160, headerH + attrH + methodH + connH + 16);
+    };
+
+    const classMap = new Map<string, { x: number; y: number; w: number; h: number; cx: number; cy: number }>();
 
     displayedClasses.forEach(cls => {
       const pos = cls.position || { x: 100, y: 100 };
-      const approxHeight = Math.max(160, 65 + (cls.attributes?.length || 0) * 26 + (cls.methods?.length || 0) * 26);
+      const measured = nodeDimensionsRef.current.get(cls.id);
+      const connCount = diagram.relations.filter(r => r.sourceClassId === cls.id || r.targetClassId === cls.id).length;
+      const w = measured?.w && measured.w > 80 ? measured.w : 330;
+      const h = measured?.h && measured.h > 80 ? measured.h : estimarAlturaFallback(cls, connCount);
       classMap.set(cls.id, {
         x: pos.x,
         y: pos.y,
-        w: 310,
-        h: approxHeight
+        w,
+        h,
+        cx: pos.x + w / 2,
+        cy: pos.y + h / 2
       });
     });
 
-    return diagram.relations.map(rel => {
+    type AnchorSide = 'TOP' | 'BOTTOM' | 'LEFT' | 'RIGHT';
+    interface RelMeta {
+      rel: RelacionUml;
+      src: { x: number; y: number; w: number; h: number; cx: number; cy: number };
+      tgt: { x: number; y: number; w: number; h: number; cx: number; cy: number };
+      srcSide: AnchorSide;
+      tgtSide: AnchorSide;
+      isSelf?: boolean;
+    }
+
+    const relMetas: RelMeta[] = [];
+    const srcSideBuckets = new Map<string, string[]>();
+    const tgtSideBuckets = new Map<string, string[]>();
+
+    // UML 2.5: Identificar clases asociativas activas vinculadas
+    const activeAssocClassIds = new Set<string>();
+    diagram.relations.forEach(r => {
+      if (r.associationClassId) activeAssocClassIds.add(r.associationClassId);
+    });
+    displayedClasses.forEach(c => {
+      if (esClaseAsociativaUniversal(c, diagram.relations)) activeAssocClassIds.add(c.id);
+    });
+
+    // Descartar aristas binarias directas hacia clases asociativas en el trazado visual (UML 2.5)
+    const relationsToRender = diagram.relations.filter(rel => {
+      // Si la arista apunta o nace de una clase asociativa, NO renderizarla como línea binaria
+      if (activeAssocClassIds.has(rel.sourceClassId) || activeAssocClassIds.has(rel.targetClassId)) {
+        return false;
+      }
+      return true;
+    });
+
+    relationsToRender.forEach(rel => {
       const src = classMap.get(rel.sourceClassId);
       const tgt = classMap.get(rel.targetClassId);
+      if (!src || !tgt) return;
 
-      if (!src || !tgt) return null;
+      if (rel.sourceClassId === rel.targetClassId) {
+        relMetas.push({ rel, src, tgt, srcSide: 'RIGHT', tgtSide: 'TOP', isSelf: true });
+        return;
+      }
 
-      const srcCenter = { x: src.x + src.w / 2, y: src.y + src.h / 2 };
-      const tgtCenter = { x: tgt.x + tgt.w / 2, y: tgt.y + tgt.h / 2 };
+      const dx = tgt.cx - src.cx;
+      const dy = tgt.cy - src.cy;
 
-      const dx = tgtCenter.x - srcCenter.x;
-      const dy = tgtCenter.y - srcCenter.y;
+      const gapRight = tgt.x - (src.x + src.w);
+      const gapLeft = src.x - (tgt.x + tgt.w);
+      const gapBottom = tgt.y - (src.y + src.h);
+      const gapTop = src.y - (tgt.y + tgt.h);
 
-      let startX = srcCenter.x;
-      let startY = srcCenter.y;
-      let endX = tgtCenter.x;
-      let endY = tgtCenter.y;
-      let c1X = srcCenter.x;
-      let c1Y = srcCenter.y;
-      let c2X = tgtCenter.x;
-      let c2Y = tgtCenter.y;
+      let srcSide: AnchorSide = 'RIGHT';
+      let tgtSide: AnchorSide = 'LEFT';
 
-      if (Math.abs(dx) >= Math.abs(dy) * 0.75) {
-        if (dx >= 0) {
-          // Target is to the right
-          startX = src.x + src.w;
-          startY = srcCenter.y;
-          endX = tgt.x;
-          endY = tgtCenter.y;
-          const curveDist = Math.max(30, Math.min(180, (endX - startX) * 0.5));
-          c1X = startX + curveDist;
+      if (gapRight > 10 && gapRight >= Math.max(gapBottom, gapTop)) {
+        srcSide = 'RIGHT';
+        tgtSide = 'LEFT';
+      } else if (gapLeft > 10 && gapLeft >= Math.max(gapBottom, gapTop)) {
+        srcSide = 'LEFT';
+        tgtSide = 'RIGHT';
+      } else if (gapBottom > 10 && gapBottom >= Math.max(gapRight, gapLeft)) {
+        srcSide = 'BOTTOM';
+        tgtSide = 'TOP';
+      } else if (gapTop > 10 && gapTop >= Math.max(gapRight, gapLeft)) {
+        srcSide = 'TOP';
+        tgtSide = 'BOTTOM';
+      } else {
+        const normX = Math.abs(dx) / ((src.w + tgt.w) / 2);
+        const normY = Math.abs(dy) / ((src.h + tgt.h) / 2);
+
+        if (normX >= normY) {
+          if (dx >= 0) {
+            srcSide = 'RIGHT';
+            tgtSide = 'LEFT';
+          } else {
+            srcSide = 'LEFT';
+            tgtSide = 'RIGHT';
+          }
+        } else {
+          if (dy >= 0) {
+            srcSide = 'BOTTOM';
+            tgtSide = 'TOP';
+          } else {
+            srcSide = 'TOP';
+            tgtSide = 'BOTTOM';
+          }
+        }
+      }
+
+      relMetas.push({ rel, src, tgt, srcSide, tgtSide });
+
+      const srcKey = `${rel.sourceClassId}_${srcSide}`;
+      const tgtKey = `${rel.targetClassId}_${tgtSide}`;
+      if (!srcSideBuckets.has(srcKey)) srcSideBuckets.set(srcKey, []);
+      srcSideBuckets.get(srcKey)!.push(rel.id);
+      if (!tgtSideBuckets.has(tgtKey)) tgtSideBuckets.set(tgtKey, []);
+      tgtSideBuckets.get(tgtKey)!.push(rel.id);
+    });
+
+    return relMetas.map(({ rel, src, tgt, srcSide, tgtSide, isSelf }) => {
+      if (isSelf) {
+        const startX = src.x + src.w;
+        const startY = src.y + 45;
+        const endX = src.x + src.w - 45;
+        const endY = src.y;
+
+        const c1X = src.x + src.w + 65;
+        const c1Y = src.y + 10;
+        const c2X = src.x + src.w - 10;
+        const c2Y = src.y - 60;
+
+        const pathD = `M ${startX} ${startY} C ${c1X} ${c1Y}, ${c2X} ${c2Y}, ${endX} ${endY}`;
+        const midX = src.x + src.w + 30;
+        const midY = src.y - 20;
+
+        return {
+          id: rel.id,
+          pathD,
+          label: rel.label || '',
+          srcMultiplicity: rel.sourceMultiplicity || '1',
+          tgtMultiplicity: rel.targetMultiplicity || '0..*',
+          type: rel.type,
+          sourceClassId: rel.sourceClassId,
+          targetClassId: rel.targetClassId,
+          startX,
+          startY,
+          endX,
+          endY,
+          midX,
+          midY,
+          srcMultX: startX + 10,
+          srcMultY: startY + 16,
+          tgtMultX: endX - 10,
+          tgtMultY: endY - 14
+        };
+      }
+      const srcKey = `${rel.sourceClassId}_${srcSide}`;
+      const srcList = srcSideBuckets.get(srcKey) || [rel.id];
+      const srcIdx = srcList.indexOf(rel.id);
+      const srcOffset = srcList.length > 1 ? (srcIdx - (srcList.length - 1) / 2) * 22 : 0;
+
+      const tgtKey = `${rel.targetClassId}_${tgtSide}`;
+      const tgtList = tgtSideBuckets.get(tgtKey) || [rel.id];
+      const tgtIdx = tgtList.indexOf(rel.id);
+      const tgtOffset = tgtList.length > 1 ? (tgtIdx - (tgtList.length - 1) / 2) * 22 : 0;
+
+      let startX = src.cx;
+      let startY = src.cy;
+      let endX = tgt.cx;
+      let endY = tgt.cy;
+
+      // Anclaje en el origen (siempre sobre el borde perimetral exterior de la tarjeta)
+      if (srcSide === 'RIGHT') {
+        startX = src.x + src.w;
+        const overlapTop = Math.max(src.y, tgt.y);
+        const overlapBottom = Math.min(src.y + src.h, tgt.y + tgt.h);
+        if (overlapBottom - overlapTop > 24) {
+          startY = (overlapTop + overlapBottom) / 2 + srcOffset;
+        } else {
+          startY = Math.max(src.y + 40, Math.min(src.y + src.h - 40, src.cy)) + srcOffset;
+        }
+      } else if (srcSide === 'LEFT') {
+        startX = src.x;
+        const overlapTop = Math.max(src.y, tgt.y);
+        const overlapBottom = Math.min(src.y + src.h, tgt.y + tgt.h);
+        if (overlapBottom - overlapTop > 24) {
+          startY = (overlapTop + overlapBottom) / 2 + srcOffset;
+        } else {
+          startY = Math.max(src.y + 40, Math.min(src.y + src.h - 40, src.cy)) + srcOffset;
+        }
+      } else if (srcSide === 'BOTTOM') {
+        startY = src.y + src.h;
+        const overlapLeft = Math.max(src.x, tgt.x);
+        const overlapRight = Math.min(src.x + src.w, tgt.x + tgt.w);
+        if (overlapRight - overlapLeft > 24) {
+          startX = (overlapLeft + overlapRight) / 2 + srcOffset;
+        } else {
+          startX = Math.max(src.x + 40, Math.min(src.x + src.w - 40, src.cx)) + srcOffset;
+        }
+      } else if (srcSide === 'TOP') {
+        startY = src.y;
+        const overlapLeft = Math.max(src.x, tgt.x);
+        const overlapRight = Math.min(src.x + src.w, tgt.x + tgt.w);
+        if (overlapRight - overlapLeft > 24) {
+          startX = (overlapLeft + overlapRight) / 2 + srcOffset;
+        } else {
+          startX = Math.max(src.x + 40, Math.min(src.x + src.w - 40, src.cx)) + srcOffset;
+        }
+      }
+
+      // Anclaje en el destino (siempre sobre el borde perimetral exterior de la tarjeta)
+      if (tgtSide === 'LEFT') {
+        endX = tgt.x;
+        const overlapTop = Math.max(src.y, tgt.y);
+        const overlapBottom = Math.min(src.y + src.h, tgt.y + tgt.h);
+        if (overlapBottom - overlapTop > 24 && srcSide === 'RIGHT') {
+          endY = startY;
+        } else {
+          endY = Math.max(tgt.y + 40, Math.min(tgt.y + tgt.h - 40, tgt.cy)) + tgtOffset;
+        }
+      } else if (tgtSide === 'RIGHT') {
+        endX = tgt.x + tgt.w;
+        const overlapTop = Math.max(src.y, tgt.y);
+        const overlapBottom = Math.min(src.y + src.h, tgt.y + tgt.h);
+        if (overlapBottom - overlapTop > 24 && srcSide === 'LEFT') {
+          endY = startY;
+        } else {
+          endY = Math.max(tgt.y + 40, Math.min(tgt.y + tgt.h - 40, tgt.cy)) + tgtOffset;
+        }
+      } else if (tgtSide === 'TOP') {
+        endY = tgt.y;
+        const overlapLeft = Math.max(src.x, tgt.x);
+        const overlapRight = Math.min(src.x + src.w, tgt.x + tgt.w);
+        if (overlapRight - overlapLeft > 24 && srcSide === 'BOTTOM') {
+          endX = startX;
+        } else {
+          endX = Math.max(tgt.x + 40, Math.min(tgt.x + tgt.w - 40, tgt.cx)) + tgtOffset;
+        }
+      } else if (tgtSide === 'BOTTOM') {
+        endY = tgt.y + tgt.h;
+        const overlapLeft = Math.max(src.x, tgt.x);
+        const overlapRight = Math.min(src.x + src.w, tgt.x + tgt.w);
+        if (overlapRight - overlapLeft > 24 && srcSide === 'TOP') {
+          endX = startX;
+        } else {
+          endX = Math.max(tgt.x + 40, Math.min(tgt.x + tgt.w - 40, tgt.cx)) + tgtOffset;
+        }
+      }
+
+      // Puntos de control Bézier cúbicos con curvatura fluida y tangencia
+      let c1X = startX;
+      let c1Y = startY;
+      let c2X = endX;
+      let c2Y = endY;
+
+      if (srcSide === 'RIGHT' || srcSide === 'LEFT') {
+        if (Math.abs(startY - endY) < 1.5) {
+          c1X = (startX + endX) / 2;
           c1Y = startY;
-          c2X = endX - curveDist;
+          c2X = (startX + endX) / 2;
           c2Y = endY;
         } else {
-          // Target is to the left
-          startX = src.x;
-          startY = srcCenter.y;
-          endX = tgt.x + tgt.w;
-          endY = tgtCenter.y;
-          const curveDist = Math.max(30, Math.min(180, (startX - endX) * 0.5));
-          c1X = startX - curveDist;
+          const dist = Math.max(35, Math.min(180, Math.abs(endX - startX) * 0.45));
+          const sDir = srcSide === 'RIGHT' ? 1 : -1;
+          const tDir = tgtSide === 'LEFT' ? -1 : 1;
+          c1X = startX + sDir * dist;
           c1Y = startY;
-          c2X = endX + curveDist;
+          c2X = endX + tDir * dist;
           c2Y = endY;
         }
       } else {
-        if (dy >= 0) {
-          // Target is below
-          startX = srcCenter.x;
-          startY = src.y + src.h;
-          endX = tgtCenter.x;
-          endY = tgt.y;
-          const curveDist = Math.max(30, Math.min(180, (endY - startY) * 0.5));
+        if (Math.abs(startX - endX) < 1.5) {
           c1X = startX;
-          c1Y = startY + curveDist;
+          c1Y = (startY + endY) / 2;
           c2X = endX;
-          c2Y = endY - curveDist;
+          c2Y = (startY + endY) / 2;
         } else {
-          // Target is above
-          startX = srcCenter.x;
-          startY = src.y;
-          endX = tgtCenter.x;
-          endY = tgt.y + tgt.h;
-          const curveDist = Math.max(30, Math.min(180, (startY - endY) * 0.5));
+          const dist = Math.max(35, Math.min(180, Math.abs(endY - startY) * 0.45));
+          const sDir = srcSide === 'BOTTOM' ? 1 : -1;
+          const tDir = tgtSide === 'TOP' ? -1 : 1;
           c1X = startX;
-          c1Y = startY - curveDist;
+          c1Y = startY + sDir * dist;
           c2X = endX;
-          c2Y = endY + curveDist;
+          c2Y = endY + tDir * dist;
         }
       }
 
       const pathD = `M ${startX} ${startY} C ${c1X} ${c1Y}, ${c2X} ${c2Y}, ${endX} ${endY}`;
-      const midX = (startX + endX) / 2;
-      const midY = (startY + endY) / 2;
+
+      // Punto medio matemático exacto de la curva Bézier cúbica en t = 0.5 (garantiza que la pastilla esté sobre la línea)
+      const midX = 0.125 * startX + 0.375 * c1X + 0.375 * c2X + 0.125 * endX;
+      const midY = 0.125 * startY + 0.375 * c1Y + 0.375 * c2Y + 0.125 * endY;
+
+      // Multiplicidad en coordenadas seguras exteriores (fuera de las cajas de clase)
+      let srcMultX = startX;
+      let srcMultY = startY;
+      if (srcSide === 'RIGHT') {
+        srcMultX = startX + 10;
+        srcMultY = startY - 8;
+      } else if (srcSide === 'LEFT') {
+        srcMultX = startX - 22;
+        srcMultY = startY - 8;
+      } else if (srcSide === 'BOTTOM') {
+        srcMultX = startX + 10;
+        srcMultY = startY + 16;
+      } else if (srcSide === 'TOP') {
+        srcMultX = startX + 10;
+        srcMultY = startY - 10;
+      }
+
+      let tgtMultX = endX;
+      let tgtMultY = endY;
+      if (tgtSide === 'LEFT') {
+        tgtMultX = endX - 22;
+        tgtMultY = endY - 8;
+      } else if (tgtSide === 'RIGHT') {
+        tgtMultX = endX + 10;
+        tgtMultY = endY - 8;
+      } else if (tgtSide === 'TOP') {
+        tgtMultX = endX + 10;
+        tgtMultY = endY - 10;
+      } else if (tgtSide === 'BOTTOM') {
+        tgtMultX = endX + 10;
+        tgtMultY = endY + 16;
+      }
+
+      // UML 2.5: Cálculo del conector punteado para la Clase Asociativa
+      let assocClassPathD: string | undefined = undefined;
+      let assocId = rel.associationClassId;
+
+      if (!assocId && (rel.type === 'ASSOCIATION_N_M' || (rel.sourceMultiplicity?.includes('*') && rel.targetMultiplicity?.includes('*')))) {
+        // Inferencia automática universal para diagramas con clase asociativa si no está explícitamente seteada
+        const candidateAssoc = displayedClasses.find(c =>
+          activeAssocClassIds.has(c.id) &&
+          c.id !== rel.sourceClassId &&
+          c.id !== rel.targetClassId
+        );
+        if (candidateAssoc) {
+          assocId = candidateAssoc.id;
+        }
+      }
+
+      if (assocId) {
+        const assoc = classMap.get(assocId);
+        if (assoc) {
+          let targetX = assoc.cx;
+          let targetY = assoc.y;
+
+          if (midY < assoc.y) {
+            targetX = Math.max(assoc.x + 20, Math.min(assoc.x + assoc.w - 20, midX));
+            targetY = assoc.y;
+          } else if (midY > assoc.y + assoc.h) {
+            targetX = Math.max(assoc.x + 20, Math.min(assoc.x + assoc.w - 20, midX));
+            targetY = assoc.y + assoc.h;
+          } else if (midX < assoc.x) {
+            targetX = assoc.x;
+            targetY = Math.max(assoc.y + 20, Math.min(assoc.y + assoc.h - 20, midY));
+          } else {
+            targetX = assoc.x + assoc.w;
+            targetY = Math.max(assoc.y + 20, Math.min(assoc.y + assoc.h - 20, midY));
+          }
+
+          assocClassPathD = `M ${midX} ${midY} L ${targetX} ${targetY}`;
+        }
+      }
 
       return {
         id: rel.id,
@@ -1575,22 +2524,154 @@ export const InteractiveStudioCanvas: React.FC<InteractiveStudioCanvasProps> = (
         srcMultiplicity: rel.sourceMultiplicity || '1',
         tgtMultiplicity: rel.targetMultiplicity || '*',
         type: rel.type,
+        sourceClassId: rel.sourceClassId,
+        targetClassId: rel.targetClassId,
         startX,
         startY,
         endX,
         endY,
         midX,
-        midY
+        midY,
+        srcMultX,
+        srcMultY,
+        tgtMultX,
+        tgtMultY,
+        assocClassPathD,
+        associationClassId: assocId
       };
-    }).filter(Boolean);
-  }, [displayedClasses, diagram.relations]);
+    });
+  }, [displayedClasses, diagram.relations, dimensionTick]);
 
   const userColor = session.currentUser?.avatarColor || 'var(--accent-primary)';
+
+  // ============================================================================
+  // REFACTOR 2026-09-26 Â· RENDIMIENTO 60 FPS
+  // Callbacks ESTABLES (identidad constante) para React.memo de UmlNodeCard y
+  // RelationLayer. Patron "latest-ref": un ref se re-asigna en cada render con
+  // los handlers frescos, y los useCallback con deps vacias delegan en ese ref.
+  // Asi las tarjetas NO se re-renderizan al arrastrar una clase (solo la clase
+  // arrastrada), manteniendo el mismo comportamiento previo (incluido STOMP).
+  // ============================================================================
+  const handleStartCanvasLinking = useCallback((classId: string) => {
+    setCardFastLinkerClassId(null);
+    setConnectingSourceId(classId);
+    setConnectingMousePos(null);
+  }, []);
+
+  const handleSelectRelation = useCallback((relationId: string) => {
+    setSelectedRelationId(relationId);
+    selectedRelationIdRef.current = relationId;
+    onSelectClass(null);
+  }, [onSelectClass]);
+
+  const handleHoverRelation = useCallback((relationId: string | null) => {
+    setHoveredRelationId(relationId);
+  }, []);
+
+  const handleClearClassSelection = useCallback(() => {
+    onSelectClass(null);
+  }, [onSelectClass]);
+
+  const canvasHandlersRef = useRef<{
+    handleClassMouseDown: typeof handleClassMouseDown;
+    handleStartEditingClass: typeof handleStartEditingClass;
+    handleSaveEditingClass: typeof handleSaveEditingClass;
+    handleSaveAttribute: typeof handleSaveAttribute;
+    handleSaveMethod: typeof handleSaveMethod;
+    handleAddAttributePreset: typeof handleAddAttributePreset;
+    handleAddAuditFields: typeof handleAddAuditFields;
+    handleFastLinkSubmit: typeof handleFastLinkSubmit;
+    handleDeleteRelationSafe: typeof handleDeleteRelationSafe;
+    handleStartCanvasLinking: typeof handleStartCanvasLinking;
+    handleSelectRelation: typeof handleSelectRelation;
+    handleHoverRelation: typeof handleHoverRelation;
+    handleClearClassSelection: typeof handleClearClassSelection;
+    handleCycleMultiplicity: typeof handleCycleMultiplicity;
+    handleUpdateRelation: typeof handleUpdateRelation;
+  }>({
+    handleClassMouseDown,
+    handleStartEditingClass,
+    handleSaveEditingClass,
+    handleSaveAttribute,
+    handleSaveMethod,
+    handleAddAttributePreset,
+    handleAddAuditFields,
+    handleFastLinkSubmit,
+    handleDeleteRelationSafe,
+    handleStartCanvasLinking,
+    handleSelectRelation,
+    handleHoverRelation,
+    handleClearClassSelection,
+    handleCycleMultiplicity,
+    handleUpdateRelation
+  });
+  useEffect(() => {
+    canvasHandlersRef.current = {
+      handleClassMouseDown,
+      handleStartEditingClass,
+      handleSaveEditingClass,
+      handleSaveAttribute,
+      handleSaveMethod,
+      handleAddAttributePreset,
+      handleAddAuditFields,
+      handleFastLinkSubmit,
+      handleDeleteRelationSafe,
+      handleStartCanvasLinking,
+      handleSelectRelation,
+      handleHoverRelation,
+      handleClearClassSelection,
+      handleCycleMultiplicity,
+      handleUpdateRelation
+    };
+  });
+
+  const stableOnClassMouseDown = useCallback((e: React.MouseEvent, cls: ClaseUml) => {
+    canvasHandlersRef.current.handleClassMouseDown(e, cls);
+  }, []);
+  const stableOnStartEditingClass = useCallback((cls: ClaseUml, e: React.MouseEvent) => {
+    canvasHandlersRef.current.handleStartEditingClass(cls, e);
+  }, []);
+  const stableOnSaveEditingClass = useCallback((classId: string, e?: React.FormEvent | React.MouseEvent) => {
+    canvasHandlersRef.current.handleSaveEditingClass(classId, e);
+  }, []);
+  const stableOnSaveAttribute = useCallback((e: React.FormEvent, classId: string) => {
+    canvasHandlersRef.current.handleSaveAttribute(e, classId);
+  }, []);
+  const stableOnSaveMethod = useCallback((e: React.FormEvent, classId: string) => {
+    canvasHandlersRef.current.handleSaveMethod(e, classId);
+  }, []);
+  const stableOnAddAttributePreset = useCallback((classId: string, presetName: string, presetType: AtributoUml['type'], isPk?: boolean) => {
+    canvasHandlersRef.current.handleAddAttributePreset(classId, presetName, presetType, isPk);
+  }, []);
+  const stableOnAddAuditFields = useCallback((classId: string) => {
+    canvasHandlersRef.current.handleAddAuditFields(classId);
+  }, []);
+  const stableOnFastLinkSubmit = useCallback((sourceClassId: string, srcMult?: string, tgtMult?: string) => {
+    canvasHandlersRef.current.handleFastLinkSubmit(sourceClassId, srcMult, tgtMult);
+  }, []);
+  const stableOnDeleteRelation = useCallback((relationId: string) => {
+    canvasHandlersRef.current.handleDeleteRelationSafe(relationId);
+  }, []);
+  const stableOnStartCanvasLinking = useCallback((classId: string) => {
+    canvasHandlersRef.current.handleStartCanvasLinking(classId);
+  }, []);
+  const stableOnSelectRelation = useCallback((relationId: string) => {
+    canvasHandlersRef.current.handleSelectRelation(relationId);
+  }, []);
+  const stableOnHoverRelation = useCallback((relationId: string | null) => {
+    canvasHandlersRef.current.handleHoverRelation(relationId);
+  }, []);
+  const stableOnClearClassSelection = useCallback(() => {
+    canvasHandlersRef.current.handleClearClassSelection();
+  }, []);
+  const stableOnCycleMultiplicity = useCallback((relationId: string, end: 'source' | 'target') => {
+    canvasHandlersRef.current.handleCycleMultiplicity(relationId, end);
+  }, []);
 
   return (
     <div
       ref={canvasRef}
-      className="studio-canvas-root"
+      className={`studio-canvas-root ${isPanning ? 'is-panning' : ''} ${(isRelationMode || connectingSourceId) ? 'is-connecting' : ''} ${isSpacePressed ? 'is-space-pressed' : ''}`}
       onMouseDown={handleCanvasMouseDown}
       onMouseMove={handleMouseMove}
       onMouseEnter={handleMouseEnter}
@@ -1598,24 +2679,54 @@ export const InteractiveStudioCanvas: React.FC<InteractiveStudioCanvasProps> = (
       onMouseLeave={handleMouseLeave}
       onDoubleClick={handleCanvasDoubleClick}
       onDragOver={handleCanvasDragOver}
+      onDragLeave={handleCanvasDragLeave}
       onDrop={handleCanvasDrop}
       style={{
         flex: 1,
         position: 'relative',
         overflow: 'hidden',
         background: 'var(--bg-canvas)',
-        cursor: isPanning ? 'grabbing' : (connectingSourceId ? 'crosshair' : isSpacePressed ? 'grab' : 'default')
+        cursor: isPanning ? 'grabbing' : ((isRelationMode || connectingSourceId) ? 'crosshair' : (isSpacePressed ? 'grab' : 'default'))
       }}
     >
-      {/* 🌌 Ambient Grid & Dot Pattern Sincronizado 1:1 con Pan y Zoom */}
-      <div 
-        className="canvas-ambient-backdrop" 
-        style={{
-          backgroundPosition: `${((pan.x % Math.max(12, Math.round(28 * zoom))) + Math.max(12, Math.round(28 * zoom))) % Math.max(12, Math.round(28 * zoom))}px ${((pan.y % Math.max(12, Math.round(28 * zoom))) + Math.max(12, Math.round(28 * zoom))) % Math.max(12, Math.round(28 * zoom))}px`,
-          backgroundSize: `${Math.max(12, Math.round(28 * zoom))}px ${Math.max(12, Math.round(28 * zoom))}px`,
-          backgroundImage: `radial-gradient(var(--bg-canvas-grid) ${Math.max(1, Number((1.2 * Math.min(zoom, 1.8)).toFixed(1)))}px, transparent ${Math.max(1, Number((1.2 * Math.min(zoom, 1.8)).toFixed(1)))}px)`
-        }}
-      />
+      {/* Overlay visual de soltar elemento sobre el lienzo */}
+      {isDragOverCanvas && (
+        <div
+          style={{
+            position: 'absolute',
+            inset: 0,
+            zIndex: 45,
+            border: '3px dashed var(--accent-primary)',
+            background: 'rgba(59, 130, 246, 0.08)',
+            pointerEvents: 'none',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            backdropFilter: 'blur(2px)'
+          }}
+        >
+          <div
+            style={{
+              background: 'var(--popover-bg)',
+              border: '1px solid var(--accent-primary)',
+              borderRadius: '14px',
+              padding: '14px 28px',
+              color: 'var(--text-primary)',
+              fontWeight: 800,
+              fontSize: '0.96rem',
+              boxShadow: '0 12px 35px rgba(0, 0, 0, 0.3)',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '10px'
+            }}
+          >
+            <Plus size={20} color="var(--accent-primary)" />
+            <span>Suelta aquí para colocar el clasificador en el lienzo</span>
+          </div>
+        </div>
+      )}
+      {/* Ambient Grid & Dot Pattern Sincronizado 1:1 con Pan y Zoom */}
+        <CanvasBackdrop pan={pan} zoom={zoom} />
 
       {/* SVG Definitions & Relation Lines Layer (Área masiva de 200,000px sin fronteras ni cortes) */}
       <svg
@@ -1627,219 +2738,58 @@ export const InteractiveStudioCanvas: React.FC<InteractiveStudioCanvasProps> = (
           height: '200000px',
           overflow: 'visible',
           pointerEvents: 'none',
-          zIndex: 5,
+          zIndex: 15,
           transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
           transformOrigin: '0 0'
         }}
       >
-        <defs>
-          <filter id="glow-cyan" x="-20%" y="-20%" width="140%" height="140%">
-            <feGaussianBlur stdDeviation="3" result="blur" />
-            <feComposite in="SourceGraphic" in2="blur" operator="over" />
-          </filter>
-
-          {/* Association Arrow */}
-          <marker
-            id="uml-arrow"
-            viewBox="0 0 10 10"
-            refX="9"
-            refY="5"
-            markerWidth="8"
-            markerHeight="8"
-            orient="auto-start-reverse"
-          >
-            <path d="M 0 1 L 9 5 L 0 9 z" fill="var(--relation-line)" />
-          </marker>
-
-          {/* Composition Diamond */}
-          <marker
-            id="uml-diamond"
-            viewBox="0 0 16 16"
-            refX="1"
-            refY="8"
-            markerWidth="12"
-            markerHeight="12"
-            orient="auto"
-          >
-            <polygon points="1,8 8,2 15,8 8,14" fill="var(--accent-cyan)" stroke="#ffffff" strokeWidth="1.2" />
-          </marker>
-
-          {/* Aggregation Hollow Diamond */}
-          <marker
-            id="uml-diamond-hollow"
-            viewBox="0 0 16 16"
-            refX="1"
-            refY="8"
-            markerWidth="12"
-            markerHeight="12"
-            orient="auto"
-          >
-            <polygon points="1,8 8,2 15,8 8,14" fill="var(--bg-canvas)" stroke="var(--accent-cyan)" strokeWidth="1.5" />
-          </marker>
-
-          {/* Inheritance Hollow Triangle */}
-          <marker
-            id="uml-inheritance"
-            viewBox="0 0 14 14"
-            refX="12"
-            refY="7"
-            markerWidth="10"
-            markerHeight="10"
-            orient="auto"
-          >
-            <polygon points="1,1 12,7 1,13" fill="var(--bg-canvas)" stroke="var(--accent-secondary)" strokeWidth="1.5" />
-          </marker>
-
-          {/* Open Arrow (Dependency & directed navigation) */}
-          <marker
-            id="uml-arrow-open"
-            viewBox="0 0 12 12"
-            refX="10"
-            refY="6"
-            markerWidth="9"
-            markerHeight="9"
-            orient="auto"
-          >
-            <path d="M 2 2 L 10 6 L 2 10" fill="none" stroke="var(--relation-line)" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
-          </marker>
-
-          {/* Non-Navigable Cross (✕) */}
-          <marker
-            id="uml-cross"
-            viewBox="0 0 12 12"
-            refX="10"
-            refY="6"
-            markerWidth="9"
-            markerHeight="9"
-            orient="auto"
-          >
-            <line x1="2" y1="2" x2="10" y2="10" stroke="#f43f5e" strokeWidth="2" strokeLinecap="round" />
-            <line x1="10" y1="2" x2="2" y2="10" stroke="#f43f5e" strokeWidth="2" strokeLinecap="round" />
-          </marker>
-        </defs>
+        <SvgDefs />
 
         {/* Render Connection Lines (UML 2.5 rigorous rendering) */}
-        {relationPaths.map(r => {
-          if (!r) return null;
-          let markerEnd: string | undefined = 'url(#uml-arrow)';
-          let strokeDash = 'none';
-          let strokeColor: string | undefined = undefined;
+        <RelationLayer
+          paths={relationPaths}
+          selectedRelationId={selectedRelationId}
+          hoveredRelationId={hoveredRelationId}
+          onSelectRelation={stableOnSelectRelation}
+          onHoverRelation={stableOnHoverRelation}
+          onDeleteRelation={stableOnDeleteRelation}
+          onClearClassSelection={stableOnClearClassSelection}
+          onCycleMultiplicity={stableOnCycleMultiplicity}
+        />
 
-          if (r.type === 'COMPOSITION') {
-            markerEnd = 'url(#uml-diamond)';
-            strokeDash = 'none';
-          } else if (r.type === 'AGGREGATION') {
-            markerEnd = 'url(#uml-diamond-hollow)';
-            strokeDash = 'none';
-          } else if (r.type === 'INHERITANCE') {
-            markerEnd = 'url(#uml-inheritance)';
-            strokeDash = 'none';
-          } else if (r.type === 'REALIZATION') {
-            markerEnd = 'url(#uml-inheritance)';
-            strokeDash = '6 4';
-          } else if (r.type === 'DEPENDENCY' || r.type === 'USAGE') {
-            markerEnd = 'url(#uml-arrow-open)';
-            strokeDash = '6 4';
-          } else if (r.type === 'PACKAGE_IMPORT') {
-            markerEnd = 'url(#uml-arrow-open)';
-            strokeDash = '8 4 2 4';
-          } else if (r.type === 'ASSOCIATION_1_1') {
-            markerEnd = undefined;
-            strokeDash = 'none';
-          } else if (r.type === 'ASSOCIATION_N_M') {
-            markerEnd = undefined;
-            strokeDash = 'none';
-          } else if (r.type === 'ASSOCIATION_BINARY') {
-            markerEnd = undefined;
-            strokeDash = 'none';
-          } else if (r.type === 'NON_NAVIGABLE') {
-            markerEnd = 'url(#uml-cross)';
-            strokeDash = 'none';
-            strokeColor = '#f43f5e';
-          } else {
-            markerEnd = 'url(#uml-arrow)';
-            strokeDash = 'none';
-          }
-
+        {/* Línea elástica interactiva que sigue el ratón mientras se conecta (Rubber-band) */}
+        {connectingSourceId && connectingMousePos && (() => {
+          const src = diagram.classes.find(c => c.id === connectingSourceId);
+          if (!src) return null;
+          const srcDims = nodeDimensionsRef.current.get(connectingSourceId) || { w: 330, h: 160 };
+          const srcX = (src.position?.x || 100) + srcDims.w / 2;
+          const srcY = (src.position?.y || 100) + srcDims.h / 2;
           return (
-            <g key={r.id}>
-              {/* Outer soft glow line */}
-              <path
-                d={r.pathD}
-                fill="none"
-                stroke={strokeColor ? `${strokeColor}44` : 'var(--relation-glow)'}
-                strokeWidth="6"
-                strokeLinecap="round"
+            <g pointerEvents="none" className="rubber-band-layer">
+              <line
+                x1={srcX}
+                y1={srcY}
+                x2={connectingMousePos.x}
+                y2={connectingMousePos.y}
+                stroke="#38bdf8"
+                strokeWidth="2.5"
+                strokeDasharray="6 4"
+                style={{ filter: 'drop-shadow(0 0 6px rgba(56, 189, 248, 0.8))' }}
               />
-              {/* Core connection line */}
-              <path
-                d={r.pathD}
-                fill="none"
-                stroke={strokeColor || 'var(--relation-line)'}
-                strokeWidth="2"
-                strokeDasharray={strokeDash}
-                markerEnd={markerEnd}
+              <circle
+                cx={connectingMousePos.x}
+                cy={connectingMousePos.y}
+                r="6"
+                fill="#38bdf8"
+                style={{ filter: 'drop-shadow(0 0 8px #38bdf8)' }}
               />
-
-              {/* Relation Label Badge */}
-              {r.label && (
-                <g 
-                  transform={`translate(${r.midX - 40}, ${r.midY - 12})`} 
-                  style={{ pointerEvents: 'auto', cursor: 'pointer' }}
-                  onClick={() => onDeleteRelation && onDeleteRelation(r.id)}
-                >
-                  <rect
-                    width="80"
-                    height="24"
-                    rx="6"
-                    fill="var(--relation-badge-bg)"
-                    stroke="var(--relation-badge-border)"
-                    strokeWidth="1"
-                  />
-                  <text
-                    x="40"
-                    y="16"
-                    fill="var(--relation-badge-text)"
-                    fontSize="11"
-                    fontFamily="Outfit, sans-serif"
-                    fontWeight="700"
-                    textAnchor="middle"
-                  >
-                    {r.label}
-                  </text>
-                </g>
-              )}
-
-              {/* Multiplicities */}
-              <text
-                x={r.startX + 10}
-                y={r.startY - 8}
-                fill="#94a3b8"
-                fontSize="11"
-                fontFamily="JetBrains Mono, monospace"
-                fontWeight="700"
-              >
-                {r.srcMultiplicity}
-              </text>
-              <text
-                x={r.endX - 18}
-                y={r.endY - 8}
-                fill="#94a3b8"
-                fontSize="11"
-                fontFamily="JetBrains Mono, monospace"
-                fontWeight="700"
-              >
-                {r.tgtMultiplicity}
-              </text>
             </g>
           );
-        })}
+        })()}
       </svg>
 
-
-
       {/* Connecting Mode Banner */}
-      {connectingSourceId && (
+      {(isRelationMode || connectingSourceId) && (
         <div
           style={{
             position: 'absolute',
@@ -1858,11 +2808,30 @@ export const InteractiveStudioCanvas: React.FC<InteractiveStudioCanvasProps> = (
             zIndex: 60
           }}
         >
-          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
             <LinkIcon size={16} color="var(--accent-cyan)" />
             <span style={{ fontSize: '0.82rem', fontWeight: 700, color: 'var(--text-primary)' }}>
-              Modo Conexión: Selecciona la clase destino
+              {connectingSourceId
+                ? `Conectar: [${diagram.classes.find(c => c.id === connectingSourceId)?.name || 'Origen'}] ➔ Haz clic en la tabla DESTINO`
+                : 'Modo Conexión: Haz clic en la tabla ORIGEN en el lienzo'}
             </span>
+            {selectedRelationType === 'ASSOCIATION_N_M' && (
+              <span style={{
+                background: 'rgba(168, 85, 247, 0.25)',
+                border: '1px solid #a855f7',
+                color: '#e9d5ff',
+                padding: '2px 8px',
+                borderRadius: '6px',
+                fontSize: '0.68rem',
+                fontWeight: 800,
+                display: 'flex',
+                alignItems: 'center',
+                gap: '4px'
+              }}>
+                <Sparkles size={11} color="#fef08a" />
+                <span>Auto-descomposición en Tabla Intermedia (UML 2.5 / 3FN)</span>
+              </span>
+            )}
           </div>
 
           <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap' }}>
@@ -1900,7 +2869,11 @@ export const InteractiveStudioCanvas: React.FC<InteractiveStudioCanvasProps> = (
           </div>
 
           <button
-            onClick={() => setConnectingSourceId(null)}
+            onClick={() => {
+              setConnectingSourceId(null);
+              setConnectingMousePos(null);
+              setIsRelationMode(false);
+            }}
             style={{
               background: 'transparent',
               border: 'none',
@@ -1917,7 +2890,599 @@ export const InteractiveStudioCanvas: React.FC<InteractiveStudioCanvasProps> = (
         </div>
       )}
 
-      {/* 🔒 Banner de Modo Solo Lectura (RBAC) */}
+      {/* Barra Flotante de Gestión de Relación Seleccionada (HUD Ergonómico y Compacto) */}
+      {selectedRelationId && (() => {
+        const rel = diagram.relations.find(r => r.id === selectedRelationId);
+        if (!rel) return null;
+        const src = diagram.classes.find(c => c.id === rel.sourceClassId);
+        const tgt = diagram.classes.find(c => c.id === rel.targetClassId);
+        const canEdit = !userPermissions || userPermissions.canEditDiagram;
+        const isSpecialNoMult = ['INHERITANCE', 'REALIZATION', 'DEPENDENCY', 'USAGE', 'PACKAGE_IMPORT'].includes(rel.type);
+        const isManyToMany = rel.type === 'ASSOCIATION_N_M' ||
+          (['*', '0..*', '1..*'].includes(rel.sourceMultiplicity || '') && ['*', '0..*', '1..*'].includes(rel.targetMultiplicity || ''));
+
+        // Modo colapsado (píldora minimalista que no tapa nada en el lienzo)
+        if (isRelationBarCollapsed) {
+          return (
+            <div
+              className="relation-action-bar"
+              style={{
+                position: 'absolute',
+                top: relationBarPosition === 'top' ? '16px' : 'auto',
+                bottom: relationBarPosition === 'bottom' ? '82px' : 'auto',
+                left: '50%',
+                transform: 'translateX(-50%)',
+                background: 'rgba(23, 26, 74, 0.94)',
+                backdropFilter: 'blur(20px)',
+                WebkitBackdropFilter: 'blur(20px)',
+                border: '1px solid rgba(232, 195, 158, 0.35)',
+                borderRadius: '24px',
+                padding: '5px 12px',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '8px',
+                boxShadow: '0 8px 24px rgba(0, 0, 32, 0.65), 0 0 16px rgba(232, 195, 158, 0.15)',
+                zIndex: 70,
+                animation: 'fadeIn 0.15s ease'
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <Link2 size={14} color="#e8c39e" />
+                <span style={{ color: '#f5e1ce', fontWeight: 800, fontSize: '0.76rem' }}>
+                  {src?.name || 'Origen'}
+                </span>
+                <span style={{ color: '#e8c39e', fontSize: '0.72rem' }}>➔</span>
+                <span style={{ color: '#f5e1ce', fontWeight: 800, fontSize: '0.76rem' }}>
+                  {tgt?.name || 'Destino'}
+                </span>
+              </div>
+
+              <span style={{
+                background: 'rgba(232, 195, 158, 0.18)',
+                color: '#e8c39e',
+                border: '1px solid rgba(232, 195, 158, 0.3)',
+                borderRadius: '6px',
+                padding: '2px 6px',
+                fontSize: '0.68rem',
+                fontWeight: 800,
+                fontFamily: 'monospace'
+              }}>
+                {rel.type.replace('ASSOCIATION_', '')} {!isSpecialNoMult && `(${rel.sourceMultiplicity || '1'}:${rel.targetMultiplicity || '*'})`}
+              </span>
+
+              <div style={{ width: '1px', height: '16px', background: 'rgba(245, 225, 206, 0.15)' }} />
+
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setIsRelationBarCollapsed(false);
+                }}
+                className="btn-studio-glass"
+                style={{
+                  padding: '3px 8px',
+                  fontSize: '0.72rem',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '4px',
+                  color: '#f5e1ce',
+                  borderRadius: '6px',
+                  border: '1px solid rgba(232, 195, 158, 0.25)'
+                }}
+                title="Expandir panel de relación"
+              >
+                <span>Editar</span>
+                <ChevronDown size={13} />
+              </button>
+
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setRelationBarPosition(p => p === 'top' ? 'bottom' : 'top');
+                }}
+                className="btn-studio-glass"
+                style={{
+                  padding: '3px 6px',
+                  border: 'none',
+                  color: 'var(--text-muted)',
+                  cursor: 'pointer',
+                  borderRadius: '5px',
+                  display: 'flex',
+                  alignItems: 'center'
+                }}
+                title={relationBarPosition === 'top' ? 'Mover al fondo' : 'Mover al tope'}
+              >
+                <ArrowUpDown size={13} />
+              </button>
+
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setSelectedRelationId(null);
+                  selectedRelationIdRef.current = null;
+                }}
+                style={{
+                  background: 'transparent',
+                  border: 'none',
+                  color: 'var(--text-muted)',
+                  cursor: 'pointer',
+                  padding: '3px',
+                  display: 'flex',
+                  alignItems: 'center'
+                }}
+                title="Deseleccionar relación (Escape)"
+              >
+                <X size={14} />
+              </button>
+            </div>
+          );
+        }
+
+        // Modo completo: HUD estructurado en 2 filas compactas, sin scrollbar horizontal
+        return (
+          <div
+            className="relation-action-bar"
+            style={{
+              position: 'absolute',
+              top: relationBarPosition === 'top' ? '14px' : 'auto',
+              bottom: relationBarPosition === 'bottom' ? '82px' : 'auto',
+              left: '50%',
+              transform: 'translateX(-50%)',
+              background: 'rgba(23, 26, 74, 0.96)',
+              backdropFilter: 'blur(24px)',
+              WebkitBackdropFilter: 'blur(24px)',
+              border: '1px solid rgba(232, 195, 158, 0.32)',
+              borderRadius: '16px',
+              padding: '10px 14px',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '8px',
+              boxShadow: '0 12px 40px rgba(0, 0, 32, 0.65), 0 0 20px rgba(232, 195, 158, 0.14)',
+              zIndex: 70,
+              maxWidth: '96vw',
+              width: 'max-content',
+              animation: 'scaleUp 0.18s cubic-bezier(0.16, 1, 0.3, 1)'
+            }}
+          >
+            {/* Fila 1: Entidades conectadas, Rol/Etiqueta y Acciones principales */}
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '14px' }}>
+              {/* Clases conectadas con botón de inversión */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexShrink: 0 }}>
+                <div style={{
+                  width: '24px',
+                  height: '24px',
+                  borderRadius: '6px',
+                  background: 'rgba(232, 195, 158, 0.15)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  color: '#e8c39e',
+                  flexShrink: 0
+                }}>
+                  <Link2 size={13} />
+                </div>
+
+                <span style={{
+                  color: '#f5e1ce',
+                  background: 'rgba(47, 44, 121, 0.55)',
+                  border: '1px solid rgba(232, 195, 158, 0.25)',
+                  padding: '3px 8px',
+                  borderRadius: '6px',
+                  fontSize: '0.78rem',
+                  fontWeight: 800,
+                  fontFamily: 'var(--font-heading)'
+                }}>
+                  {src?.name || 'Origen'}
+                </span>
+
+                {canEdit && (
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleInvertRelation(rel.id);
+                    }}
+                    className="btn-studio-glass"
+                    style={{
+                      padding: '3px 7px',
+                      fontSize: '0.72rem',
+                      borderRadius: '6px',
+                      color: '#e8c39e',
+                      cursor: 'pointer',
+                      border: '1px solid rgba(232, 195, 158, 0.25)'
+                    }}
+                    title="Invertir dirección Origen ⇄ Destino"
+                  >
+                    ⇄
+                  </button>
+                )}
+
+                <span style={{
+                  color: '#f5e1ce',
+                  background: 'rgba(47, 44, 121, 0.55)',
+                  border: '1px solid rgba(232, 195, 158, 0.25)',
+                  padding: '3px 8px',
+                  borderRadius: '6px',
+                  fontSize: '0.78rem',
+                  fontWeight: 800,
+                  fontFamily: 'var(--font-heading)'
+                }}>
+                  {tgt?.name || 'Destino'}
+                </span>
+              </div>
+
+              {/* Rol / Etiqueta de la relación */}
+              {canEdit && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <span style={{ fontSize: '0.70rem', color: '#e8c39e', fontWeight: 700, textTransform: 'uppercase' }}>
+                    Rol:
+                  </span>
+                  <input
+                    type="text"
+                    value={rel.label || ''}
+                    placeholder="ej. tiene, compone"
+                    onChange={(e) => {
+                      e.stopPropagation();
+                      handleUpdateRelation(rel.id, { label: e.target.value });
+                    }}
+                    style={{
+                      width: '120px',
+                      background: 'rgba(15, 23, 42, 0.65)',
+                      border: '1px solid rgba(245, 225, 206, 0.18)',
+                      color: '#f5e1ce',
+                      borderRadius: '7px',
+                      padding: '4px 8px',
+                      fontSize: '0.74rem',
+                      outline: 'none'
+                    }}
+                  />
+                </div>
+              )}
+
+              {/* Botones de acción derecha */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexShrink: 0 }}>
+                {/* Descomponer N:M si corresponde */}
+                {canEdit && isManyToMany && src && tgt && (
+                  <div style={{ display: 'flex', gap: '5px' }}>
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        createIntermediateTableNM(src, tgt, rel.id);
+                      }}
+                      className="btn-studio-primary"
+                      style={{
+                        background: 'linear-gradient(135deg, #7c3aed 0%, #4f46e5 100%)',
+                        border: '1px solid rgba(168, 85, 247, 0.6)',
+                        padding: '4px 9px',
+                        fontSize: '0.72rem',
+                        borderRadius: '7px',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '5px',
+                        boxShadow: '0 2px 10px rgba(124, 58, 237, 0.4)'
+                      }}
+                      title="Descomponer automáticamente en Tabla Intermedia (UML 2.5 / 3FN)"
+                    >
+                      <Sparkles size={12} color="#fef08a" />
+                      <span>Descomponer (3FN)</span>
+                    </button>
+
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setDecomposerModalData({ srcClass: src, tgtClass: tgt, relIdToRemove: rel.id });
+                      }}
+                      className="btn-studio-glass"
+                      style={{
+                        padding: '4px 8px',
+                        fontSize: '0.72rem',
+                        borderRadius: '7px',
+                        color: '#e9d5ff',
+                        border: '1px solid rgba(168, 85, 247, 0.35)',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '4px'
+                      }}
+                      title="Personalizar tabla intermedia a mano"
+                    >
+                      <Settings size={12} />
+                    </button>
+                  </div>
+                )}
+
+                {/* Botón Eliminar */}
+                {canEdit && (
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleDeleteRelationSafe(rel.id);
+                    }}
+                    style={{
+                      background: 'rgba(244, 63, 94, 0.16)',
+                      border: '1px solid rgba(244, 63, 94, 0.4)',
+                      color: '#fb7185',
+                      fontWeight: 700,
+                      fontSize: '0.72rem',
+                      padding: '4px 8px',
+                      borderRadius: '7px',
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '4px',
+                      transition: 'all 0.15s ease'
+                    }}
+                    title="Eliminar esta conexión (Tecla Supr)"
+                  >
+                    <Trash2 size={12} />
+                    <span>Eliminar</span>
+                  </button>
+                )}
+
+                <div style={{ width: '1px', height: '16px', background: 'rgba(245, 225, 206, 0.15)', margin: '0 2px' }} />
+
+                {/* Botón de Alternar Posición Arriba/Abajo */}
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setRelationBarPosition(p => p === 'top' ? 'bottom' : 'top');
+                  }}
+                  className="btn-studio-glass"
+                  style={{
+                    padding: '4px 6px',
+                    border: 'none',
+                    color: 'var(--text-muted)',
+                    cursor: 'pointer',
+                    borderRadius: '5px',
+                    display: 'flex',
+                    alignItems: 'center'
+                  }}
+                  title={relationBarPosition === 'top' ? 'Mover barra al fondo de la pantalla' : 'Mover barra a la parte superior'}
+                >
+                  <ArrowUpDown size={13} />
+                </button>
+
+                {/* Botón Minimizar */}
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setIsRelationBarCollapsed(true);
+                  }}
+                  className="btn-studio-glass"
+                  style={{
+                    padding: '4px 6px',
+                    border: 'none',
+                    color: 'var(--text-muted)',
+                    cursor: 'pointer',
+                    borderRadius: '5px',
+                    display: 'flex',
+                    alignItems: 'center'
+                  }}
+                  title="Minimizar barra a píldora compacta"
+                >
+                  <ChevronUp size={13} />
+                </button>
+
+                {/* Botón Cerrar selección */}
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setSelectedRelationId(null);
+                    selectedRelationIdRef.current = null;
+                  }}
+                  style={{
+                    background: 'transparent',
+                    border: 'none',
+                    color: 'var(--text-muted)',
+                    cursor: 'pointer',
+                    padding: '4px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    borderRadius: '5px'
+                  }}
+                  title="Deseleccionar conexión (Escape)"
+                >
+                  <X size={14} />
+                </button>
+              </div>
+            </div>
+
+            {/* Fila 2: Semántica UML, Multiplicidades y Presets en 1 clic */}
+            <div style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '10px',
+              borderTop: '1px solid rgba(245, 225, 206, 0.1)',
+              paddingTop: '8px'
+            }}>
+              {/* Selector de Tipo de Relación */}
+              {canEdit && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexShrink: 0 }}>
+                  <span style={{ fontSize: '0.68rem', color: '#e8c39e', fontWeight: 700, textTransform: 'uppercase' }}>
+                    Tipo:
+                  </span>
+                  <select
+                    value={rel.type}
+                    onChange={(e) => {
+                      e.stopPropagation();
+                      handleChangeRelationType(rel.id, e.target.value as TipoRelacion);
+                    }}
+                    style={{
+                      background: 'rgba(15, 23, 42, 0.75)',
+                      border: '1px solid rgba(232, 195, 158, 0.28)',
+                      color: '#f5e1ce',
+                      borderRadius: '7px',
+                      padding: '4px 8px',
+                      fontSize: '0.74rem',
+                      fontWeight: 700,
+                      outline: 'none',
+                      cursor: 'pointer'
+                    }}
+                  >
+                    <option value="ASSOCIATION_1_N">1:N (Uno a Muchos)</option>
+                    <option value="ASSOCIATION_1_1">1:1 (Uno a Uno)</option>
+                    <option value="ASSOCIATION_N_M">N:M (Muchos a Muchos)</option>
+                    <option value="ASSOCIATION_BINARY">Binaria Simple</option>
+                    <option value="ASSOCIATION_CLASS">Clase Asociativa (╌)</option>
+                    <option value="COMPOSITION">Composición (◆ Todo-Parte)</option>
+                    <option value="AGGREGATION">Agregación (◇ Agregado)</option>
+                    <option value="INHERITANCE">Herencia (△ Extiende)</option>
+                    <option value="REALIZATION">Realización (╌△ Implementa)</option>
+                    <option value="DEPENDENCY">Dependencia (╌&gt; Usa)</option>
+                    <option value="USAGE">«use» (Uso)</option>
+                    <option value="PACKAGE_IMPORT">«import»</option>
+                    <option value="NON_NAVIGABLE">No Navegable (✕)</option>
+                  </select>
+                </div>
+              )}
+
+              {/* Selectores de Cardinalidad / Multiplicidad */}
+              {canEdit && !isSpecialNoMult && (
+                <>
+                  <div style={{ width: '1px', height: '18px', background: 'rgba(245, 225, 206, 0.12)', flexShrink: 0 }} />
+
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '5px', flexShrink: 0 }}>
+                    <span style={{ fontSize: '0.68rem', color: 'var(--text-muted)', fontWeight: 600 }}>Card:</span>
+                    <select
+                      value={rel.sourceMultiplicity || '1'}
+                      onChange={(e) => {
+                        e.stopPropagation();
+                        handleUpdateRelation(rel.id, { sourceMultiplicity: e.target.value });
+                      }}
+                      style={{
+                        background: 'rgba(15, 23, 42, 0.75)',
+                        border: '1px solid rgba(232, 195, 158, 0.35)',
+                        color: '#e8c39e',
+                        borderRadius: '6px',
+                        padding: '3px 6px',
+                        fontSize: '0.74rem',
+                        fontWeight: 800,
+                        fontFamily: 'monospace',
+                        cursor: 'pointer'
+                      }}
+                      title="Multiplicidad del extremo origen"
+                    >
+                      <option value="1">1</option>
+                      <option value="0..1">0..1</option>
+                      <option value="*">*</option>
+                      <option value="0..*">0..*</option>
+                      <option value="1..*">1..*</option>
+                    </select>
+
+                    <span style={{ color: 'var(--text-muted)', fontSize: '0.72rem' }}>➔</span>
+
+                    <select
+                      value={rel.targetMultiplicity || '*'}
+                      onChange={(e) => {
+                        e.stopPropagation();
+                        handleUpdateRelation(rel.id, { targetMultiplicity: e.target.value });
+                      }}
+                      style={{
+                        background: 'rgba(15, 23, 42, 0.75)',
+                        border: '1px solid rgba(232, 195, 158, 0.35)',
+                        color: '#e8c39e',
+                        borderRadius: '6px',
+                        padding: '3px 6px',
+                        fontSize: '0.74rem',
+                        fontWeight: 800,
+                        fontFamily: 'monospace',
+                        cursor: 'pointer'
+                      }}
+                      title="Multiplicidad del extremo destino"
+                    >
+                      <option value="*">*</option>
+                      <option value="0..*">0..*</option>
+                      <option value="1..*">1..*</option>
+                      <option value="1">1</option>
+                      <option value="0..1">0..1</option>
+                    </select>
+                  </div>
+
+                  <div style={{ width: '1px', height: '18px', background: 'rgba(245, 225, 206, 0.12)', flexShrink: 0 }} />
+
+                  {/* Presets Rápidos de Cardinalidad en 1 clic */}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '4px', flexShrink: 0 }}>
+                    <span style={{ fontSize: '0.66rem', color: 'var(--text-muted)', fontWeight: 600, marginRight: '2px' }}>
+                      Presets:
+                    </span>
+                    {[
+                      { label: '1:N', src: '1', tgt: '0..*', type: 'ASSOCIATION_1_N' },
+                      { label: '1:1', src: '1', tgt: '1', type: 'ASSOCIATION_1_1' },
+                      { label: 'N:M', src: '*', tgt: '*', type: 'ASSOCIATION_N_M' },
+                      { label: '0..1 : 1', src: '0..1', tgt: '1', type: 'ASSOCIATION_1_1' },
+                      { label: '1 : 1..*', src: '1', tgt: '1..*', type: 'COMPOSITION' }
+                    ].map(p => {
+                      const isActive = (rel.sourceMultiplicity === p.src && rel.targetMultiplicity === p.tgt);
+                      return (
+                        <button
+                          key={p.label}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleUpdateRelation(rel.id, {
+                              sourceMultiplicity: p.src,
+                              targetMultiplicity: p.tgt,
+                              type: p.type as TipoRelacion
+                            });
+                          }}
+                          style={{
+                            padding: '3px 7px',
+                            fontSize: '0.68rem',
+                            fontWeight: 800,
+                            fontFamily: 'monospace',
+                            background: isActive ? 'rgba(232, 195, 158, 0.24)' : 'rgba(255, 255, 255, 0.05)',
+                            border: isActive ? '1px solid #e8c39e' : '1px solid rgba(245, 225, 206, 0.12)',
+                            color: isActive ? '#f5e1ce' : 'var(--text-secondary)',
+                            borderRadius: '6px',
+                            cursor: 'pointer',
+                            transition: 'all 0.15s ease'
+                          }}
+                          title={`Aplicar cardinalidad ${p.label}`}
+                        >
+                          {p.label}
+                        </button>
+                      );
+                    })}
+                  </div>
+
+                  {/* Selector de Clase Asociativa Vinculada (UML 2.5) */}
+                  <div style={{ width: '1px', height: '18px', background: 'rgba(245, 225, 206, 0.12)', flexShrink: 0 }} />
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '5px', flexShrink: 0 }}>
+                    <span style={{ fontSize: '0.66rem', color: '#e8c39e', fontWeight: 700 }} title="Vincular con una Clase Asociativa (Línea discontinua UML 2.5)">
+                      Clase Asoc:
+                    </span>
+                    <select
+                      value={rel.associationClassId || ''}
+                      onChange={(e) => {
+                        e.stopPropagation();
+                        handleUpdateRelation(rel.id, { associationClassId: e.target.value || undefined });
+                      }}
+                      style={{
+                        background: 'rgba(15, 23, 42, 0.75)',
+                        border: '1px solid rgba(232, 195, 158, 0.28)',
+                        color: '#f5e1ce',
+                        borderRadius: '6px',
+                        padding: '3px 6px',
+                        fontSize: '0.72rem',
+                        fontWeight: 600,
+                        outline: 'none',
+                        cursor: 'pointer'
+                      }}
+                    >
+                      <option value="">(Ninguna)</option>
+                      {diagram.classes
+                        .filter(c => c.id !== rel.sourceClassId && c.id !== rel.targetClassId)
+                        .map(c => (
+                          <option key={c.id} value={c.id}>
+                            {c.name} {c.stereotype === 'AssociationClass' ? '«Assoc»' : ''}
+                          </option>
+                        ))}
+                    </select>
+                  </div>
+                </>
+              )}
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* Banner de Modo Solo Lectura (RBAC) */}
       {userPermissions && !userPermissions.canEditDiagram && (
         <div
           style={{
@@ -1958,1004 +3523,77 @@ export const InteractiveStudioCanvas: React.FC<InteractiveStudioCanvasProps> = (
           width: '200000px',
           height: '200000px',
           overflow: 'visible',
+          pointerEvents: 'none',
           zIndex: 10
         }}
       >
         {/* Render Interactive UML Class Nodes */}
-        {displayedClasses.map(cls => {
-          const isSelected = selectedClassId === cls.id;
-          const isConnectingSource = connectingSourceId === cls.id;
-          const pos = cls.position || { x: 120, y: 120 };
-          const stereotype = cls.stereotype || 'Entity';
-
-          const stereoStyles: Record<string, { icon: React.ReactNode }> = {
-            Class: { icon: <Box size={13} color="currentColor" /> },
-            Entity: { icon: <Database size={13} color="currentColor" /> },
-            Service: { icon: <Layers size={13} color="currentColor" /> },
-            Controller: { icon: <FileCode size={13} color="currentColor" /> },
-            Repository: { icon: <Server size={13} color="currentColor" /> },
-            Interface: { icon: <CircleDot size={13} color="currentColor" /> },
-            Abstract: { icon: <Code2 size={13} color="currentColor" /> },
-            Enum: { icon: <ListFilter size={13} color="currentColor" /> },
-            DTO: { icon: <PackageOpen size={13} color="currentColor" /> },
-            Component: { icon: <Box size={13} color="currentColor" /> },
-            Note: { icon: <StickyNote size={13} color="currentColor" /> },
-            Template: { icon: <Code2 size={13} color="currentColor" /> },
-            Package: { icon: <FolderOpen size={13} color="currentColor" /> },
-            Instance: { icon: <CircleDot size={13} color="currentColor" /> },
-            DataType: { icon: <Boxes size={13} color="currentColor" /> },
-            Primitive: { icon: <Hash size={13} color="currentColor" /> },
-            Signal: { icon: <Zap size={13} color="currentColor" /> },
-            AssociationClass: { icon: <Link2 size={13} color="currentColor" /> }
-          };
-
-          const activeStereo = stereoStyles[stereotype] || stereoStyles.Entity;
-          const remoteDragInfo = remoteDraggingNodes?.[cls.id];
-          const isRemoteDragging = Boolean(remoteDragInfo && draggingClassId !== cls.id);
-          const madurez = calcularMadurezClase(cls, diagram.relations, diagram.classes);
-          const canEdit = !userPermissions || userPermissions.canEditDiagram;
-
-          return (
-            <div
-              key={cls.id}
-              className={`uml-class-node ${isSelected ? 'node-selected' : ''} ${draggingClassId === cls.id ? 'dragging' : ''} ${isRemoteDragging ? 'remote-dragging' : ''}`}
-              onMouseDown={e => handleClassMouseDown(e, cls)}
-              style={{
-                left: `${pos.x}px`,
-                top: `${pos.y}px`,
-                width: '330px',
-                borderRadius: '12px',
-                outline: isConnectingSource
-                  ? '2px dashed var(--accent-cyan)'
-                  : isRemoteDragging
-                  ? `2px solid ${remoteDragInfo?.color || 'var(--accent-cyan)'}`
-                  : 'none',
-                boxShadow: isConnectingSource
-                  ? '0 0 25px rgba(47, 44, 121, 0.75)'
-                  : isRemoteDragging
-                  ? `0 0 20px ${remoteDragInfo?.color || 'var(--accent-cyan)'}88, 0 12px 30px rgba(0,0,0,0.18)`
-                  : undefined
-              }}
-            >
-              {/* Badge flotante que indica qué compañero está moviendo la tabla en vivo */}
-              {isRemoteDragging && remoteDragInfo && (
-                <div
-                  style={{
-                    position: 'absolute',
-                    top: '-26px',
-                    left: '6px',
-                    background: remoteDragInfo.color,
-                    color: '#ffffff',
-                    fontSize: '0.68rem',
-                    fontWeight: 800,
-                    fontFamily: 'var(--font-heading)',
-                    padding: '2px 9px',
-                    borderRadius: '6px',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '4px',
-                    boxShadow: `0 4px 12px ${remoteDragInfo.color}88`,
-                    zIndex: 60,
-                    pointerEvents: 'none'
-                  }}
-                >
-                  <Sparkles size={11} />
-                  <span>{remoteDragInfo.name} moviendo...</span>
-                </div>
-              )}
-              {/* Card Header (Functional HUD - Glassmorphic with Distinct Stereotype Accent) */}
-              <div
-                style={{
-                  background: 'var(--glass-node-header-bg)',
-                  padding: '8px 10px',
-                  borderBottom: '1px solid var(--glass-node-header-border)',
-                  borderTop: '3px solid var(--glass-node-header-accent)',
-                  borderTopLeftRadius: '11px',
-                  borderTopRightRadius: '11px',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'space-between',
-                  gap: '6px',
-                  width: '100%',
-                  boxSizing: 'border-box',
-                  overflow: 'hidden'
-                }}
-              >
-                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', minWidth: 0, flex: 1, overflow: 'hidden' }}>
-                  <div style={{
-                    width: '22px',
-                    height: '22px',
-                    borderRadius: '5px',
-                    background: 'var(--glass-node-icon-bg)',
-                    border: '1px solid var(--glass-node-header-border)',
-                    color: 'var(--glass-node-icon-color)',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    flexShrink: 0
-                  }}>
-                    {activeStereo.icon}
-                  </div>
-                  <div style={{ flex: 1, minWidth: 0, overflow: 'hidden' }}>
-                    <div style={{
-                      fontSize: '0.64rem',
-                      color: 'var(--glass-node-stereo-color)',
-                      fontWeight: 800,
-                      letterSpacing: '0.04em',
-                      fontFamily: 'var(--font-mono)',
-                      whiteSpace: 'nowrap',
-                      overflow: 'hidden',
-                      textOverflow: 'ellipsis'
-                    }}>
-                      &laquo;{stereotype}&raquo;
-                    </div>
-
-                    {/* Renombrado Inline de Clase */}
-                    {editingClassId === cls.id && canEdit ? (
-                      <div
-                        style={{ display: 'flex', alignItems: 'center', gap: '4px', marginTop: '2px' }}
-                        onClick={e => e.stopPropagation()}
-                        onMouseDown={e => e.stopPropagation()}
-                      >
-                        <select
-                          value={editingClassStereotype}
-                          onChange={e => setEditingClassStereotype(e.target.value as any)}
-                          style={{
-                            background: 'var(--glass-node-bg)',
-                            border: '1px solid var(--glass-border-color)',
-                            borderRadius: '4px',
-                            padding: '2px 4px',
-                            fontSize: '0.66rem',
-                            color: 'var(--text-primary)'
-                          }}
-                        >
-                          <option value="Class">Class</option>
-                          <option value="Entity">Entity</option>
-                          <option value="Service">Service</option>
-                          <option value="Controller">Controller</option>
-                          <option value="Repository">Repository</option>
-                          <option value="Interface">Interface</option>
-                          <option value="Abstract">Abstract</option>
-                          <option value="Enum">Enum</option>
-                          <option value="DTO">DTO</option>
-                          <option value="Component">Component</option>
-                          <option value="Note">Note</option>
-                          <optgroup label="── UML 2.5+ ──">
-                            <option value="Template">Template (Genérica)</option>
-                            <option value="Package">Package (Paquete)</option>
-                            <option value="Instance">Instance (Objeto)</option>
-                            <option value="DataType">DataType</option>
-                            <option value="Primitive">Primitive</option>
-                            <option value="Signal">Signal (Señal)</option>
-                            <option value="AssociationClass">AssociationClass</option>
-                          </optgroup>
-                        </select>
-                        <input
-                          type="text"
-                          value={editingClassName}
-                          onChange={e => setEditingClassName(e.target.value)}
-                          onKeyDown={e => {
-                            if (e.key === 'Enter') handleSaveEditingClass(cls.id);
-                            if (e.key === 'Escape') setEditingClassId(null);
-                          }}
-                          autoFocus
-                          style={{
-                            background: 'var(--glass-node-bg)',
-                            border: '1px solid var(--accent-cyan)',
-                            borderRadius: '4px',
-                            padding: '2px 6px',
-                            fontSize: '0.84rem',
-                            fontWeight: 800,
-                            color: 'var(--text-primary)',
-                            width: '105px'
-                          }}
-                        />
-                        <button
-                          onClick={e => handleSaveEditingClass(cls.id, e)}
-                          style={{
-                            background: 'var(--accent-emerald)',
-                            border: 'none',
-                            borderRadius: '4px',
-                            color: '#fff',
-                            padding: '3px 6px',
-                            cursor: 'pointer'
-                          }}
-                          title="Guardar nombre"
-                        >
-                          <Check size={12} />
-                        </button>
-                        <button
-                          onClick={e => { e.stopPropagation(); setEditingClassId(null); }}
-                          style={{
-                            background: 'transparent',
-                            border: 'none',
-                            color: 'var(--text-muted)',
-                            padding: '2px 4px',
-                            cursor: 'pointer'
-                          }}
-                          title="Cancelar"
-                        >
-                          <X size={12} />
-                        </button>
-                      </div>
-                    ) : (
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '4px', minWidth: 0, overflow: 'hidden' }}>
-                        <h3
-                          onDoubleClick={e => { if (canEdit) handleStartEditingClass(cls, e); }}
-                          style={{
-                            fontFamily: 'var(--font-heading)',
-                            fontSize: '0.88rem',
-                            fontWeight: 800,
-                            color: 'var(--glass-node-header-text)',
-                            fontStyle: (stereotype === 'Interface' || stereotype === 'Abstract' || cls.isInterface || cls.isAbstract) ? 'italic' : 'normal',
-                            letterSpacing: '-0.01em',
-                            cursor: canEdit ? 'pointer' : 'default',
-                            margin: 0,
-                            whiteSpace: 'nowrap',
-                            overflow: 'hidden',
-                            textOverflow: 'ellipsis',
-                            minWidth: 0,
-                            flexShrink: 1
-                          }}
-                          title={canEdit ? `Doble clic o lápiz para renombrar (${cls.name})` : cls.name}
-                        >
-                          {cls.name}
-                        </h3>
-                        {/* Badge de Madurez de la Clase */}
-                        <span
-                          title={`Madurez: ${madurez.porcentaje}% (${madurez.nivel.replace('_', ' ')})\n${madurez.sugerencias.join('\n')}`}
-                          style={{
-                            fontSize: '0.60rem',
-                            fontWeight: 800,
-                            padding: '1px 5px',
-                            borderRadius: '999px',
-                            background: `${madurez.color}22`,
-                            color: madurez.color,
-                            border: `1px solid ${madurez.color}55`,
-                            cursor: 'help',
-                            flexShrink: 0
-                          }}
-                        >
-                          {madurez.porcentaje}%
-                        </span>
-                        {canEdit && (
-                          <button
-                            onClick={e => handleStartEditingClass(cls, e)}
-                            style={{
-                              background: 'transparent',
-                              border: 'none',
-                              color: 'var(--glass-node-stereo-color)',
-                              cursor: 'pointer',
-                              padding: '1px',
-                              display: 'flex',
-                              alignItems: 'center',
-                              flexShrink: 0
-                            }}
-                            title="Renombrar clase / cambiar estereotipo"
-                          >
-                            <Edit2 size={10} />
-                          </button>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                </div>
-
-                {/* Acciones de la cabecera: Enlazar y Eliminar (Limpias y sin desbordamiento) */}
-                <div style={{ display: 'flex', alignItems: 'center', gap: '4px', flexShrink: 0 }}>
-                  {canEdit && (
-                    <button
-                      onClick={e => {
-                        e.stopPropagation();
-                        const willOpen = cardFastLinkerClassId !== cls.id;
-                        setCardFastLinkerClassId(willOpen ? cls.id : null);
-                        if (willOpen) {
-                          const others = diagram.classes.filter(c => c.id !== cls.id);
-                          if (others.length > 0 && (!fastLinkTargetClassId || fastLinkTargetClassId === cls.id)) {
-                            setFastLinkTargetClassId(others[0].id);
-                          }
-                        }
-                      }}
-                      style={{
-                        background: cardFastLinkerClassId === cls.id ? 'var(--accent-primary)' : 'var(--glass-node-btn-bg)',
-                        border: cardFastLinkerClassId === cls.id ? '1px solid var(--accent-primary)' : '1px solid var(--glass-node-btn-border)',
-                        borderRadius: '6px',
-                        padding: '2px 7px',
-                        color: cardFastLinkerClassId === cls.id ? '#ffffff' : 'var(--glass-node-btn-text)',
-                        cursor: 'pointer',
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: '3px',
-                        fontSize: '0.67rem',
-                        fontWeight: 700,
-                        whiteSpace: 'nowrap',
-                        flexShrink: 0,
-                        transition: 'all 0.15s ease'
-                      }}
-                      title="Enlazar con otra tabla UML (selector directo o lienzo)"
-                    >
-                      <Link2 size={11} />
-                      <span>Enlazar</span>
-                    </button>
-                  )}
-
-                  {canEdit && (
-                    <button
-                      onClick={e => {
-                        e.stopPropagation();
-                        onDeleteClass(cls.id);
-                      }}
-                      style={{
-                        background: 'rgba(244, 63, 94, 0.12)',
-                        border: '1px solid rgba(244, 63, 94, 0.28)',
-                        borderRadius: '6px',
-                        padding: '3px 4px',
-                        color: '#fb7185',
-                        cursor: 'pointer',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        flexShrink: 0,
-                        transition: 'all 0.15s ease'
-                      }}
-                      title="Eliminar entidad"
-                    >
-                      <Trash2 size={11} />
-                    </button>
-                  )}
-                </div>
-              </div>
-
-              {/* Barra de progreso de madurez de la clase (con track visible para evitar sensación de corte) */}
-              <div
-                style={{
-                  width: '100%',
-                  height: '3px',
-                  background: 'rgba(255, 255, 255, 0.12)',
-                  position: 'relative',
-                  overflow: 'hidden'
-                }}
-                title={`Nivel de madurez del software: ${madurez.porcentaje}% (${madurez.nivel.replace('_', ' ')})`}
-              >
-                <div
-                  style={{
-                    width: `${madurez.porcentaje}%`,
-                    height: '100%',
-                    background: `linear-gradient(90deg, ${madurez.color}cc, ${madurez.color})`,
-                    boxShadow: `0 0 8px ${madurez.color}99`,
-                    borderRadius: '0 2px 2px 0',
-                    transition: 'width 0.4s cubic-bezier(0.4, 0, 0.2, 1)'
-                  }}
-                />
-              </div>
-
-              {/* ⚡ Fast Linker Popover integrado en la tarjeta */}
-              {cardFastLinkerClassId === cls.id && (
-                <div
-                  onClick={e => e.stopPropagation()}
-                  onMouseDown={e => e.stopPropagation()}
-                  style={{
-                    background: 'var(--popover-bg)',
-                    borderBottom: '2px solid var(--accent-cyan)',
-                    padding: '10px 12px',
-                    display: 'flex',
-                    flexDirection: 'column',
-                    gap: '8px',
-                    boxShadow: '0 8px 24px rgba(0,0,0,0.18)',
-                    animation: 'fadeIn 0.2s ease-out'
-                  }}
-                >
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                      <Link2 size={14} color="var(--accent-cyan)" />
-                      <span style={{ fontSize: '0.74rem', fontWeight: 800, color: 'var(--text-primary)' }}>
-                        Enlazar <strong>{cls.name}</strong> con:
-                      </span>
-                    </div>
-                    <button
-                      onClick={() => setCardFastLinkerClassId(null)}
-                      style={{ background: 'transparent', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', padding: '2px' }}
-                    >
-                      <X size={13} />
-                    </button>
-                  </div>
-
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                    <label style={{ fontSize: '0.68rem', color: 'var(--text-secondary)', fontWeight: 600 }}>Tabla Destino:</label>
-                    <select
-                      value={fastLinkTargetClassId}
-                      onChange={e => setFastLinkTargetClassId(e.target.value)}
-                      style={{
-                        background: 'var(--glass-node-bg)',
-                        border: '1px solid var(--glass-border-color)',
-                        borderRadius: '6px',
-                        padding: '5px 8px',
-                        fontSize: '0.74rem',
-                        color: 'var(--text-primary)'
-                      }}
-                    >
-                      <option value="" disabled>Selecciona tabla destino...</option>
-                      {diagram.classes.filter(c => c.id !== cls.id).map(target => (
-                        <option key={target.id} value={target.id}>
-                          {target.name} ({target.stereotype || 'Entity'})
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-
-                  <div style={{ display: 'flex', gap: '6px' }}>
-                    <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                      <label style={{ fontSize: '0.68rem', color: 'var(--text-secondary)', fontWeight: 600 }}>Tipo de Relación:</label>
-                      <select
-                        value={fastLinkRelType}
-                        onChange={e => setFastLinkRelType(e.target.value as TipoRelacion)}
-                        style={{
-                          background: 'var(--glass-node-bg)',
-                          border: '1px solid var(--glass-border-color)',
-                          borderRadius: '6px',
-                          padding: '5px 6px',
-                          fontSize: '0.72rem',
-                          color: 'var(--text-primary)'
-                        }}
-                      >
-                        <option value="ASSOCIATION_1_N">1:N (Uno a Muchos)</option>
-                        <option value="ASSOCIATION_N_M">N:M (Muchos a Muchos)</option>
-                        <option value="ASSOCIATION_1_1">1:1 (Uno a Uno)</option>
-                        <option value="ASSOCIATION_BINARY">Binaria (sin multiplicidad)</option>
-                        <option value="COMPOSITION">Composición (Contenedor-Parte)</option>
-                        <option value="AGGREGATION">Agregación</option>
-                        <option value="INHERITANCE">Herencia (Extiende)</option>
-                        <option value="REALIZATION">Realización (Implementa)</option>
-                        <option value="DEPENDENCY">Dependencia</option>
-                        <option value="USAGE">«use» (Uso)</option>
-                        <option value="PACKAGE_IMPORT">«import» (Importación)</option>
-                        <option value="NON_NAVIGABLE">No Navegable ✕</option>
-                      </select>
-                    </div>
-
-                    <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                      <label style={{ fontSize: '0.68rem', color: 'var(--text-secondary)', fontWeight: 600 }}>Etiqueta (opcional):</label>
-                      <input
-                        type="text"
-                        placeholder="ej. tiene, compone"
-                        value={fastLinkLabel}
-                        onChange={e => setFastLinkLabel(e.target.value)}
-                        style={{
-                          background: 'var(--glass-node-bg)',
-                          border: '1px solid var(--glass-border-color)',
-                          borderRadius: '6px',
-                          padding: '5px 8px',
-                          fontSize: '0.72rem',
-                          color: 'var(--text-primary)'
-                        }}
-                      />
-                    </div>
-                  </div>
-
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: '6px' }}>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setCardFastLinkerClassId(null);
-                        setConnectingSourceId(cls.id);
-                      }}
-                      style={{
-                        background: 'transparent',
-                        border: 'none',
-                        color: 'var(--accent-cyan)',
-                        fontSize: '0.68rem',
-                        fontWeight: 700,
-                        cursor: 'pointer',
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: '4px',
-                        padding: '2px 0'
-                      }}
-                      title="Conectar haciendo clic en otra clase directamente en el lienzo"
-                    >
-                      <LinkIcon size={11} />
-                      <span>Clic en lienzo</span>
-                    </button>
-
-                    <div style={{ display: 'flex', gap: '6px' }}>
-                      <button
-                        onClick={() => setCardFastLinkerClassId(null)}
-                        style={{
-                          background: 'transparent',
-                          border: '1px solid var(--glass-border-color)',
-                          borderRadius: '6px',
-                          padding: '4px 10px',
-                          fontSize: '0.72rem',
-                          color: 'var(--text-secondary)',
-                          cursor: 'pointer'
-                        }}
-                      >
-                        Cancelar
-                      </button>
-                      <button
-                        onClick={() => handleFastLinkSubmit(cls.id)}
-                        disabled={!fastLinkTargetClassId}
-                        className="btn-studio-primary"
-                        style={{
-                          padding: '4px 12px',
-                          fontSize: '0.72rem',
-                          fontWeight: 700,
-                          opacity: fastLinkTargetClassId ? 1 : 0.5,
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: '4px'
-                        }}
-                      >
-                        <Check size={12} />
-                        <span>Conectar</span>
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {/* Attributes / Fields List */}
-              <div style={{ padding: '10px 14px', borderBottom: '1px solid var(--glass-node-attr-border)' }}>
-                <div style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'space-between',
-                  marginBottom: '6px'
-                }}>
-                  <span style={{
-                    fontSize: '0.66rem',
-                    color: 'var(--text-muted)',
-                    fontWeight: 800,
-                    textTransform: 'uppercase',
-                    letterSpacing: '0.04em'
-                  }}>
-                    Atributos ({cls.attributes.length})
-                  </span>
-
-                  {canEdit && (
-                    <button
-                      onClick={e => {
-                        e.stopPropagation();
-                        setAddingAttrClassId(addingAttrClassId === cls.id ? null : cls.id);
-                      }}
-                      style={{
-                        background: 'transparent',
-                        border: 'none',
-                        color: 'var(--accent-cyan)',
-                        fontSize: '0.68rem',
-                        cursor: 'pointer',
-                        fontWeight: 700
-                      }}
-                    >
-                      + Atributo
-                    </button>
-                  )}
-                </div>
-
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                  {cls.attributes.map(attr => (
-                    <div
-                      key={attr.id}
-                      style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'space-between',
-                        fontSize: '0.78rem',
-                        fontFamily: 'var(--font-mono)',
-                        padding: '3px 6px',
-                        borderRadius: '4px',
-                        background: 'var(--glass-node-attr-item-bg)',
-                        border: '1px solid var(--glass-node-attr-item-border)'
-                      }}
-                    >
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px', minWidth: 0, flex: 1, overflow: 'hidden' }}>
-                        <span style={{
-                          color: 'rgba(232, 195, 158, 0.75)',
-                          fontWeight: 800,
-                          flexShrink: 0
-                        }}>
-                          {attr.visibility}
-                        </span>
-                        <span style={{
-                          color: 'var(--glass-node-attr-text)',
-                          fontWeight: 600,
-                          overflow: 'hidden',
-                          textOverflow: 'ellipsis',
-                          whiteSpace: 'nowrap'
-                        }} title={attr.name}>
-                          {attr.name}
-                        </span>
-                        {attr.isPrimaryKey && (
-                          <span title="Clave Primaria (PK)" style={{ flexShrink: 0 }}>
-                            <Key size={11} color="#e8c39e" />
-                          </span>
-                        )}
-                        <span style={{ color: 'var(--text-subtle)', flexShrink: 0 }}>:</span>
-                        <span style={{ color: '#e8c39e', fontWeight: 600, flexShrink: 0 }}>{attr.type}</span>
-                      </div>
-
-                      {!attr.isPrimaryKey && canEdit && (
-                        <button
-                          onClick={e => {
-                            e.stopPropagation();
-                            onDeleteAttribute(cls.id, attr.id);
-                          }}
-                          style={{
-                            background: 'transparent',
-                            border: 'none',
-                            color: 'var(--text-muted)',
-                            cursor: 'pointer',
-                            padding: '1px'
-                          }}
-                          title="Eliminar atributo"
-                        >
-                          <X size={12} />
-                        </button>
-                      )}
-                    </div>
-                  ))}
-                </div>
-
-                {/* Inline Add Attribute Form con Chips Rápidos e Inferencia Reactiva */}
-                {addingAttrClassId === cls.id && (
-                  <form
-                    onSubmit={e => handleSaveAttribute(e, cls.id)}
-                    style={{
-                      marginTop: '8px',
-                      padding: '10px',
-                      background: 'var(--glass-surface-hover)',
-                      borderRadius: '8px',
-                      border: '1px solid var(--glass-border-color)'
-                    }}
-                  >
-                    {/* Chips de campos comunes en 1 clic */}
-                    <div style={{ marginBottom: '8px' }}>
-                      <div style={{ fontSize: '0.66rem', color: 'var(--text-muted)', fontWeight: 800, textTransform: 'uppercase', marginBottom: '4px' }}>
-                        ⚡ Presets en 1 Clic:
-                      </div>
-                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px' }}>
-                        {[
-                          { label: '+ id (PK)', name: 'id', type: 'Long' as const, isPk: true },
-                          { label: '+ nombre', name: 'nombre', type: 'String' as const, isPk: false },
-                          { label: '+ descripcion', name: 'descripcion', type: 'String' as const, isPk: false },
-                          { label: '+ correo', name: 'email', type: 'String' as const, isPk: false },
-                          { label: '+ precio', name: 'precio', type: 'Double' as const, isPk: false },
-                          { label: '+ total', name: 'total', type: 'Double' as const, isPk: false },
-                          { label: '+ cantidad', name: 'cantidad', type: 'Integer' as const, isPk: false },
-                          { label: '+ fecha', name: 'fechaRegistro', type: 'LocalDate' as const, isPk: false },
-                          { label: '+ activo', name: 'activo', type: 'Boolean' as const, isPk: false }
-                        ].map(preset => (
-                          <button
-                            key={preset.label}
-                            type="button"
-                            onClick={() => handleAddAttributePreset(cls.id, preset.name, preset.type, preset.isPk)}
-                            style={{
-                              background: 'var(--glass-surface)',
-                              border: '1px solid var(--glass-border-color)',
-                              borderRadius: '4px',
-                              padding: '2px 6px',
-                              fontSize: '0.66rem',
-                              color: 'var(--text-primary)',
-                              cursor: 'pointer',
-                              fontWeight: 600
-                            }}
-                            title={`Añadir campo ${preset.name} (${preset.type})`}
-                          >
-                            {preset.label}
-                          </button>
-                        ))}
-                        <button
-                          type="button"
-                          onClick={() => handleAddAuditFields(cls.id)}
-                          style={{
-                            background: '#2f2c79',
-                            border: '1px solid #171a4a',
-                            borderRadius: '4px',
-                            padding: '2px 6px',
-                            fontSize: '0.66rem',
-                            color: '#f5e1ce',
-                            cursor: 'pointer',
-                            fontWeight: 800
-                          }}
-                          title="Añadir creadoEn, actualizadoEn, creadoPor y activo"
-                        >
-                          + ⚡ 4 Auditoría
-                        </button>
-                      </div>
-                    </div>
-
-                    <div style={{ display: 'flex', gap: '4px', marginBottom: '6px' }}>
-                      <select
-                        value={attrVis}
-                        onChange={e => setAttrVis(e.target.value as Visibilidad)}
-                        style={{
-                          background: 'var(--glass-node-bg)',
-                          border: '1px solid var(--glass-border-color)',
-                          color: 'var(--text-primary)',
-                          borderRadius: '4px',
-                          padding: '4px 6px',
-                          fontSize: '0.72rem'
-                        }}
-                      >
-                        <option value="-">- Privado</option>
-                        <option value="+">+ Público</option>
-                        <option value="#"># Protegido</option>
-                      </select>
-                      <input
-                        type="text"
-                        placeholder="nombreAtributo (auto-detecta tipo)"
-                        value={attrName}
-                        onChange={e => {
-                          const val = e.target.value;
-                          setAttrName(val);
-                          const inf = inferirTipoAtributo(val);
-                          setAttrType(inf);
-                          if (/^id$/i.test(val.trim())) {
-                            setAttrIsPk(true);
-                          }
-                        }}
-                        style={{
-                          flex: 1,
-                          background: 'var(--glass-node-bg)',
-                          border: '1px solid var(--glass-border-color)',
-                          color: 'var(--text-primary)',
-                          borderRadius: '4px',
-                          padding: '4px 8px',
-                          fontSize: '0.72rem',
-                          fontFamily: 'var(--font-mono)'
-                        }}
-                        autoFocus
-                      />
-                    </div>
-                    <div style={{ display: 'flex', gap: '4px' }}>
-                      <select
-                        value={attrType}
-                        onChange={e => setAttrType(e.target.value as any)}
-                        style={{
-                          flex: 1,
-                          background: 'var(--glass-node-bg)',
-                          border: '1px solid var(--glass-border-color)',
-                          color: 'var(--text-primary)',
-                          borderRadius: '4px',
-                          padding: '4px 6px',
-                          fontSize: '0.72rem'
-                        }}
-                      >
-                        <option value="String">String</option>
-                        <option value="Long">Long</option>
-                        <option value="Integer">Integer</option>
-                        <option value="Double">Double</option>
-                        <option value="Boolean">Boolean</option>
-                        <option value="LocalDate">LocalDate</option>
-                        <option value="LocalDateTime">LocalDateTime</option>
-                        <option value="BigDecimal">BigDecimal</option>
-                      </select>
-                      <button
-                        type="submit"
-                        style={{
-                          background: 'var(--accent-primary)',
-                          border: 'none',
-                          color: '#ffffff',
-                          borderRadius: '4px',
-                          padding: '4px 10px',
-                          fontSize: '0.72rem',
-                          fontWeight: 700,
-                          cursor: 'pointer',
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: '4px'
-                        }}
-                      >
-                        <Check size={12} /> Guardar
-                      </button>
-                    </div>
-                  </form>
-                )}
-              </div>
-
-              {/* Methods & Operations */}
-              <div style={{
-                padding: '10px 14px',
-                background: 'var(--glass-node-method-bg)',
-                borderBottomLeftRadius: '11px',
-                borderBottomRightRadius: '11px'
-              }}>
-                <div style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'space-between',
-                  marginBottom: '6px'
-                }}>
-                  <span style={{
-                    fontSize: '0.66rem',
-                    color: 'var(--text-muted)',
-                    fontWeight: 800,
-                    textTransform: 'uppercase',
-                    letterSpacing: '0.04em'
-                  }}>
-                    Métodos ({cls.methods.length})
-                  </span>
-
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                    {canEdit && madurez.porcentaje < 100 && onAutoCompletarClase && (
-                      <button
-                        onClick={e => {
-                          e.stopPropagation();
-                          onAutoCompletarClase(cls.id);
-                        }}
-                        style={{
-                          background: '#2f2c79',
-                          border: '1px solid #171a4a',
-                          borderRadius: '5px',
-                          padding: '2px 7px',
-                          color: '#f5e1ce',
-                          cursor: 'pointer',
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: '4px',
-                          fontSize: '0.65rem',
-                          fontWeight: 700,
-                          transition: 'all 0.15s ease'
-                        }}
-                        title={`Sugerir y autocompletar métodos de negocio con IA (${madurez.sugerencias[0] || 'Lógica'})`}
-                      >
-                        <Zap size={10} />
-                        <span>+ Lógica IA</span>
-                      </button>
-                    )}
-
-                    {canEdit && (
-                      <button
-                        onClick={e => {
-                          e.stopPropagation();
-                          setAddingMethodClassId(addingMethodClassId === cls.id ? null : cls.id);
-                        }}
-                        style={{
-                          background: 'transparent',
-                          border: 'none',
-                          color: 'var(--accent-primary)',
-                          fontSize: '0.68rem',
-                          cursor: 'pointer',
-                          fontWeight: 700
-                        }}
-                      >
-                        + Método
-                      </button>
-                    )}
-                  </div>
-                </div>
-
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
-                  {cls.methods.map(m => (
-                    <div
-                      key={m.id}
-                      style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'space-between',
-                        fontSize: '0.76rem',
-                        fontFamily: 'var(--font-mono)',
-                        color: 'var(--text-secondary)',
-                        padding: '2px 4px',
-                        borderRadius: '4px'
-                      }}
-                    >
-                      <div style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={`${m.name}(${m.parameters || ''}): ${m.returnType}`}>
-                        <span style={{ color: 'rgba(232, 195, 158, 0.75)', fontWeight: 800 }}>{m.visibility} </span>
-                        <span style={{ color: 'var(--glass-node-attr-text)', fontWeight: 600 }}>{m.name}({m.parameters || ''})</span>: <span style={{ color: '#e8c39e', fontWeight: 700 }}>{m.returnType}</span>
-                      </div>
-
-                      {onDeleteMethod && canEdit && (
-                        <button
-                          onClick={e => {
-                            e.stopPropagation();
-                            onDeleteMethod(cls.id, m.id);
-                          }}
-                          style={{
-                            background: 'transparent',
-                            border: 'none',
-                            color: 'var(--text-muted)',
-                            cursor: 'pointer',
-                            padding: '1px'
-                          }}
-                          title="Eliminar método"
-                        >
-                          <X size={11} />
-                        </button>
-                      )}
-                    </div>
-                  ))}
-                </div>
-
-                {/* Inline Add Method Form */}
-                {addingMethodClassId === cls.id && (
-                  <form
-                    onSubmit={e => handleSaveMethod(e, cls.id)}
-                    style={{
-                      marginTop: '8px',
-                      padding: '8px',
-                      background: 'var(--glass-surface-hover)',
-                      borderRadius: '8px',
-                      border: '1px solid var(--glass-border-color)'
-                    }}
-                  >
-                    <div style={{ display: 'flex', gap: '4px', marginBottom: '6px' }}>
-                      <select
-                        value={methodVis}
-                        onChange={e => setMethodVis(e.target.value as Visibilidad)}
-                        style={{
-                          background: 'var(--glass-node-bg)',
-                          border: '1px solid var(--glass-border-color)',
-                          color: 'var(--text-primary)',
-                          borderRadius: '4px',
-                          padding: '4px 6px',
-                          fontSize: '0.72rem'
-                        }}
-                      >
-                        <option value="+">+ Público</option>
-                        <option value="-">- Privado</option>
-                        <option value="#"># Protegido</option>
-                      </select>
-                      <input
-                        type="text"
-                        placeholder="nombreMetodo"
-                        value={methodName}
-                        onChange={e => setMethodName(e.target.value)}
-                        style={{
-                          flex: 1,
-                          background: 'var(--glass-node-bg)',
-                          border: '1px solid var(--glass-border-color)',
-                          color: 'var(--text-primary)',
-                          borderRadius: '4px',
-                          padding: '4px 8px',
-                          fontSize: '0.72rem',
-                          fontFamily: 'var(--font-mono)'
-                        }}
-                        autoFocus
-                      />
-                    </div>
-                    <div style={{ display: 'flex', gap: '4px' }}>
-                      <input
-                        type="text"
-                        placeholder="TipoRetorno (ej. void, List<Product>)"
-                        value={methodReturnType}
-                        onChange={e => setMethodReturnType(e.target.value)}
-                        style={{
-                          flex: 1,
-                          background: 'var(--glass-node-bg)',
-                          border: '1px solid var(--glass-border-color)',
-                          color: 'var(--text-primary)',
-                          borderRadius: '4px',
-                          padding: '4px 8px',
-                          fontSize: '0.72rem',
-                          fontFamily: 'var(--font-mono)'
-                        }}
-                      />
-                      <button
-                        type="submit"
-                        style={{
-                          background: 'var(--accent-primary)',
-                          border: 'none',
-                          color: '#ffffff',
-                          borderRadius: '4px',
-                          padding: '4px 10px',
-                          fontSize: '0.72rem',
-                          fontWeight: 700,
-                          cursor: 'pointer',
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: '4px'
-                        }}
-                      >
-                        <Check size={12} /> Guardar
-                      </button>
-                    </div>
-                  </form>
-                )}
-              </div>
-            </div>
-          );
-        })}
+        {displayedClasses.map(cls => (
+          <UmlNodeCard
+            key={cls.id}
+            cls={cls}
+            diagram={diagram}
+            isSelected={selectedClassId === cls.id}
+            isConnectingSource={connectingSourceId === cls.id}
+            isConnectingTarget={Boolean(connectingSourceId && connectingSourceId !== cls.id)}
+            isDragging={draggingClassId === cls.id}
+            isRemoteDragging={Boolean(remoteDraggingNodes?.[cls.id] && draggingClassId !== cls.id)}
+            remoteDragInfo={remoteDraggingNodes?.[cls.id]}
+            canEdit={!userPermissions || userPermissions.canEditDiagram}
+            editingClassId={editingClassId}
+            editingClassName={editingClassName}
+            editingClassStereotype={editingClassStereotype}
+            cardFastLinkerClassId={cardFastLinkerClassId}
+            fastLinkTargetClassId={fastLinkTargetClassId}
+            fastLinkRelType={fastLinkRelType}
+            fastLinkLabel={fastLinkLabel}
+            addingAttrClassId={addingAttrClassId}
+            attrName={attrName}
+            attrType={attrType}
+            attrVis={attrVis}
+            attrIsPk={attrIsPk}
+            addingMethodClassId={addingMethodClassId}
+            methodName={methodName}
+            methodReturnType={methodReturnType}
+            methodParams={methodParams}
+            methodVis={methodVis}
+            selectedRelationId={selectedRelationId}
+            nodeDimensionsRef={nodeDimensionsRef}
+            setDimensionTick={setDimensionTick}
+            onMouseDown={stableOnClassMouseDown}
+            onStartEditingClass={stableOnStartEditingClass}
+            onSaveEditingClass={stableOnSaveEditingClass}
+            onDeleteClass={onDeleteClass}
+            onDeleteAttribute={onDeleteAttribute}
+            onDeleteMethod={onDeleteMethod}
+            onSaveAttribute={stableOnSaveAttribute}
+            onSaveMethod={stableOnSaveMethod}
+            onAddAttributePreset={stableOnAddAttributePreset}
+            onAddAuditFields={stableOnAddAuditFields}
+            onFastLinkSubmit={stableOnFastLinkSubmit}
+            onStartCanvasLinking={stableOnStartCanvasLinking}
+            onDeleteRelation={stableOnDeleteRelation}
+            onAutoCompletarClase={onAutoCompletarClase}
+            setEditingClassStereotype={setEditingClassStereotype}
+            setEditingClassName={setEditingClassName}
+            setEditingClassId={setEditingClassId}
+            setCardFastLinkerClassId={setCardFastLinkerClassId}
+            setFastLinkTargetClassId={setFastLinkTargetClassId}
+            setFastLinkRelType={setFastLinkRelType}
+            setFastLinkLabel={setFastLinkLabel}
+            setAddingAttrClassId={setAddingAttrClassId}
+            setAttrName={setAttrName}
+            setAttrType={setAttrType}
+            setAttrVis={setAttrVis}
+            setAttrIsPk={setAttrIsPk}
+            setAddingMethodClassId={setAddingMethodClassId}
+            setMethodName={setMethodName}
+            setMethodReturnType={setMethodReturnType}
+            setMethodParams={setMethodParams}
+            setMethodVis={setMethodVis}
+            setSelectedRelationId={setSelectedRelationId}
+          />
+        ))}
 
         {/* ðŸ‘¥ Remote Collaborators Cursors Layer (Diagram World Space - CU-03) */}
         {!session.isLocalMode && activeRemoteCursors.map(c => (
@@ -3003,56 +3641,7 @@ export const InteractiveStudioCanvas: React.FC<InteractiveStudioCanvasProps> = (
         ))}
       </div>
 
-      {/* ðŸ‘¤ My Personalized Live Mouse Cursor (Screen-Space 1:1 Precision with Chosen Color) */}
-      <div
-        ref={myCursorRef}
-        className="collaborative-cursor"
-        style={{
-          position: 'absolute',
-          left: 0,
-          top: 0,
-          zIndex: 999,
-          pointerEvents: 'none',
-          willChange: 'transform',
-          display: 'none'
-        }}
-      >
-        <svg
-          width="22"
-          height="22"
-          viewBox="0 0 24 24"
-          style={{
-            filter: `drop-shadow(0 2px 8px ${userColor}aa)`,
-            overflow: 'visible'
-          }}
-        >
-          <path
-            d="M 1 1 L 7.5 19.5 L 10.5 12.5 L 17.5 9.5 Z"
-            fill={userColor}
-            stroke="#ffffff"
-            strokeWidth="1.8"
-            strokeLinejoin="round"
-          />
-        </svg>
-        <div
-          className="cursor-pill"
-          style={{
-            backgroundColor: userColor,
-            boxShadow: `0 4px 16px ${userColor}88`,
-            marginTop: '2px',
-            marginLeft: '10px',
-            opacity: showNameTag ? 1 : 0,
-            transform: showNameTag ? 'scale(1) translateY(0)' : 'scale(0.8) translateY(-4px)',
-            transition: 'opacity 0.4s ease, transform 0.4s ease',
-            pointerEvents: 'none'
-          }}
-        >
-          <Sparkles size={10} />
-          <span>{session.currentUser?.name || 'Tú'} (Tú)</span>
-        </div>
-      </div>
-
-      {/* 🛠️ Toolbox de Modelado UML 2.5+ (Clasificadores, Conectores, Patrones) */}
+      {/* Toolbox de Modelado UML 2.5+ (Clasificadores, Conectores, Patrones) */}
       {isToolboxOpen && (
         <ToolboxUml25
           onInsertClassifier={handleInsertClassifierFromToolbox}
@@ -3062,18 +3651,24 @@ export const InteractiveStudioCanvas: React.FC<InteractiveStudioCanvasProps> = (
           activeRelationType={selectedRelationType}
           onCancelRelationMode={() => setConnectingSourceId(null)}
           onMouseEnterToolbox={() => {
-            // Se mantiene el flag para que el zoom del lienzo no interfiera,
-            // pero el cursor colaborativo se conserva visible sobre el panel.
             isMouseOverUiPanel.current = true;
           }}
           onMouseLeaveToolbox={() => {
             isMouseOverUiPanel.current = false;
-            if (myCursorRef.current) myCursorRef.current.style.display = 'flex';
+          }}
+          onDragEndToolbox={() => {
+            setIsDragOverCanvas(false);
+            isPanningRef.current = false;
+            setIsPanning(false);
+            draggingClassIdRef.current = null;
+            setDraggingClassId(null);
+            stopAutoPanLoop();
+            onDragStateChange?.(false);
           }}
         />
       )}
 
-      {/* 🧭 Dock Unificado de Comandos y Herramientas del Lienzo (Glassmorphism HUD) */}
+      {/* Dock Unificado de Comandos y Herramientas del Lienzo (Glassmorphism HUD) */}
       {isDockCollapsed ? (
         <button
           onClick={() => setIsDockCollapsed(false)}
@@ -3189,6 +3784,29 @@ export const InteractiveStudioCanvas: React.FC<InteractiveStudioCanvasProps> = (
             <Zap size={14} color="#e8c39e" />
             <span className="dock-btn-label">Plantillas</span>
           </button>
+
+          {diagram.classes.length >= 2 && (
+            <button
+              onClick={() => setExtractSuperclassClasses(diagram.classes)}
+              className="btn-studio-glass dock-btn"
+              style={{
+                padding: '6px 12px',
+                fontSize: '0.78rem',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '6px',
+                fontWeight: 700,
+                color: '#a78bfa',
+                background: 'rgba(167, 139, 250, 0.12)',
+                borderColor: 'rgba(167, 139, 250, 0.35)',
+                whiteSpace: 'nowrap'
+              }}
+              title="Detectar atributos comunes y extraer una Superclase abstracta con relaciones de Herencia (UML 2.5)"
+            >
+              <Sparkles size={14} color="#a78bfa" />
+              <span className="dock-btn-label">Extraer Herencia</span>
+            </button>
+          )}
 
           <button
             onClick={() => {
@@ -3361,6 +3979,36 @@ export const InteractiveStudioCanvas: React.FC<InteractiveStudioCanvasProps> = (
             <span className="dock-btn-label">Ajustar</span>
           </button>
 
+          {/* Selector de Modo de Rueda del Ratón: Zoom vs Desplazamiento (Alt + M) */}
+          <button
+            onClick={() => setWheelZoomMode(m => m === 'zoom' ? 'pan' : 'zoom')}
+            className="dock-icon-btn"
+            style={{
+              background: wheelZoomMode === 'zoom' ? 'rgba(77, 163, 255, 0.16)' : 'rgba(255, 255, 255, 0.06)',
+              border: `1px solid ${wheelZoomMode === 'zoom' ? 'rgba(77, 163, 255, 0.42)' : 'rgba(255, 255, 255, 0.14)'}`,
+              color: wheelZoomMode === 'zoom' ? '#60a5fa' : 'var(--text-secondary)',
+              cursor: 'pointer',
+              padding: '4px 8px',
+              borderRadius: '6px',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '4px',
+              fontSize: '0.72rem',
+              fontWeight: 600,
+              transition: 'all 0.15s ease'
+            }}
+            title={
+              wheelZoomMode === 'zoom'
+                ? 'Modo Rueda: ZOOM ACTIVO (la rueda hace zoom). Clic para cambiar a Desplazamiento de lienzo (Alt + M)'
+                : 'Modo Rueda: DESPLAZAMIENTO ACTIVO (la rueda hace scroll, Ctrl+Rueda hace zoom). Clic para cambiar a Zoom directo (Alt + M)'
+            }
+          >
+            <Mouse size={13} />
+            <span className="dock-btn-label">
+              {wheelZoomMode === 'zoom' ? 'Rueda: Zoom' : 'Rueda: Scroll'}
+            </span>
+          </button>
+
           {/* Selector de Color de Cursor */}
           <div style={{ position: 'relative' }}>
             <button
@@ -3452,72 +4100,46 @@ export const InteractiveStudioCanvas: React.FC<InteractiveStudioCanvasProps> = (
       )}
 
       {/* ───────────────────────────────────────────────────────────── */}
-      {/* 🚀 Modal Asistido: Crear Nueva Tabla / Clase UML               */}
+      {/* Modal Asistido: Crear Nueva Tabla / Clase UML               */}
       {/* ───────────────────────────────────────────────────────────── */}
       {showNewClassModal && (
-        <div
-          style={{
-            position: 'fixed',
-            inset: 0,
-            background: 'var(--glass-modal-overlay)',
-            backdropFilter: 'blur(14px)',
-            WebkitBackdropFilter: 'blur(14px)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            zIndex: 130
-          }}
-          onClick={() => setShowNewClassModal(false)}
-        >
-          <div
-            onClick={e => e.stopPropagation()}
-            style={{
-              background: 'var(--glass-modal-bg)',
-              border: '1px solid var(--glass-modal-border)',
-              borderRadius: '16px',
-              padding: '24px',
-              maxWidth: '520px',
-              width: '92%',
-              boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.35)',
-              display: 'flex',
-              flexDirection: 'column',
-              gap: '16px',
-              animation: 'fadeIn 0.2s ease-out'
-            }}
-          >
-            {/* Modal Header */}
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <div style={{
-                  width: '32px',
-                  height: '32px',
-                  borderRadius: '8px',
-                  background: 'rgba(2, 132, 199, 0.15)',
-                  border: '1px solid rgba(2, 132, 199, 0.35)',
+        <GlassModal
+          onClose={() => setShowNewClassModal(false)}
+          title="Nueva Tabla / Clase UML"
+          subtitle="Asistente de modelado rápido con campos y enlaces automáticos"
+          icon={<Plus size={18} color="#e8c39e" />}
+          maxWidth="540px"
+          zIndex={1250}
+          footer={
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', width: '100%' }}>
+              <button
+                type="button"
+                onClick={() => setShowNewClassModal(false)}
+                className="btn-studio-glass"
+                style={{ padding: '8px 16px', fontSize: '0.8rem' }}
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={() => handleCreateAssistedClass()}
+                className="btn-studio-primary"
+                style={{
+                  padding: '8px 20px',
+                  fontSize: '0.82rem',
+                  fontWeight: 700,
                   display: 'flex',
                   alignItems: 'center',
-                  justifyContent: 'center'
-                }}>
-                  <Plus size={18} color="var(--accent-cyan)" />
-                </div>
-                <div>
-                  <h3 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 800, fontFamily: 'var(--font-heading)', color: 'var(--text-primary)' }}>
-                    Nueva Tabla / Clase UML
-                  </h3>
-                  <p style={{ margin: 0, fontSize: '0.74rem', color: 'var(--text-muted)' }}>
-                    Asistente de modelado rápido con campos y enlaces automáticos
-                  </p>
-                </div>
-              </div>
-              <button
-                onClick={() => setShowNewClassModal(false)}
-                style={{ background: 'transparent', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', padding: '4px' }}
+                  gap: '6px'
+                }}
               >
-                <X size={18} />
+                <CheckCircle2 size={16} />
+                <span>Crear Tabla</span>
               </button>
             </div>
-
-            {/* Nombre de la Clase */}
+          }
+        >
+          {/* Nombre de la Clase */}
             <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
               <label style={{ fontSize: '0.76rem', fontWeight: 700, color: 'var(--text-secondary)' }}>
                 Nombre de la Tabla / Entidad:
@@ -3716,106 +4338,23 @@ export const InteractiveStudioCanvas: React.FC<InteractiveStudioCanvasProps> = (
               </div>
             )}
 
-            {/* Botones de Acción */}
-            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '6px' }}>
-              <button
-                type="button"
-                onClick={() => setShowNewClassModal(false)}
-                className="btn-studio-glass"
-                style={{ padding: '8px 16px', fontSize: '0.8rem' }}
-              >
-                Cancelar
-              </button>
-              <button
-                type="button"
-                onClick={() => handleCreateAssistedClass()}
-                className="btn-studio-primary"
-                style={{
-                  padding: '8px 20px',
-                  fontSize: '0.82rem',
-                  fontWeight: 700,
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '6px'
-                }}
-              >
-                <CheckCircle2 size={16} />
-                <span>Crear Tabla</span>
-              </button>
-            </div>
-          </div>
-        </div>
+        </GlassModal>
       )}
 
       {/* ───────────────────────────────────────────────────────────── */}
-      {/* ⚡ Modal: Plantillas de Negocio / Arquitecturas en 1 Clic     */}
+      {/* Modal: Plantillas de Negocio / Arquitecturas en 1 Clic     */}
       {/* ───────────────────────────────────────────────────────────── */}
       {showTemplatesModal && (
-        <div
-          style={{
-            position: 'fixed',
-            inset: 0,
-            background: 'var(--glass-modal-overlay)',
-            backdropFilter: 'blur(14px)',
-            WebkitBackdropFilter: 'blur(14px)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            zIndex: 130
-          }}
-          onClick={() => setShowTemplatesModal(false)}
+        <GlassModal
+          onClose={() => setShowTemplatesModal(false)}
+          title="Plantillas de Arquitectura de Negocio"
+          subtitle="Modela sistemas empresariales completos en 1 solo clic con tablas y relaciones tipadas"
+          icon={<Zap size={20} color="#e8c39e" />}
+          maxWidth="700px"
+          maxHeight="86vh"
+          zIndex={1250}
         >
-          <div
-            onClick={e => e.stopPropagation()}
-            style={{
-              background: 'var(--glass-modal-bg)',
-              border: '1px solid var(--glass-modal-border)',
-              borderRadius: '16px',
-              padding: '24px',
-              maxWidth: '680px',
-              width: '94%',
-              maxHeight: '85vh',
-              overflowY: 'auto',
-              boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.35)',
-              display: 'flex',
-              flexDirection: 'column',
-              gap: '16px',
-              animation: 'fadeIn 0.2s ease-out'
-            }}
-          >
-            {/* Header */}
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                <div style={{
-                  width: '36px',
-                  height: '36px',
-                  borderRadius: '10px',
-                  background: '#2f2c79',
-                  border: '1px solid #171a4a',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center'
-                }}>
-                  <Zap size={20} color="#e8c39e" />
-                </div>
-                <div>
-                  <h3 style={{ margin: 0, fontSize: '1.15rem', fontWeight: 800, fontFamily: 'var(--font-heading)', color: 'var(--text-primary)' }}>
-                    Plantillas de Arquitectura de Negocio
-                  </h3>
-                  <p style={{ margin: 0, fontSize: '0.76rem', color: 'var(--text-muted)' }}>
-                    Modela sistemas empresariales completos en 1 solo clic con tablas y relaciones tipadas
-                  </p>
-                </div>
-              </div>
-              <button
-                onClick={() => setShowTemplatesModal(false)}
-                style={{ background: 'transparent', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', padding: '4px' }}
-              >
-                <X size={18} />
-              </button>
-            </div>
-
-            {/* Grid de Plantillas */}
+          {/* Grid de Plantillas */}
             <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
               {PLANTILLAS_DISPONIBLES.map(plantilla => (
                 <div
@@ -3834,7 +4373,15 @@ export const InteractiveStudioCanvas: React.FC<InteractiveStudioCanvasProps> = (
                 >
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                      <span style={{ fontSize: '1.3rem' }}>{plantilla.icono}</span>
+                      <span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 30, height: 30, borderRadius: 8, background: `${plantilla.color}1a`, color: plantilla.color, flexShrink: 0 }}>
+                        {plantilla.id === 'ecommerce' && <ShoppingCart size={18} />}
+                        {plantilla.id === 'hospital' && <HeartPulse size={18} />}
+                        {plantilla.id === 'universidad' && <GraduationCap size={18} />}
+                        {plantilla.id === 'seguridad-rbac' && <ShieldCheck size={18} />}
+                        {plantilla.id === 'inventario' && <Package size={18} />}
+                        {plantilla.id === 'biblioteca' && <BookOpen size={18} />}
+                        {plantilla.id === 'hotel' && <Building2 size={18} />}
+                      </span>
                       <div>
                         <div style={{ fontSize: '0.94rem', fontWeight: 800, color: 'var(--text-primary)', fontFamily: 'var(--font-heading)' }}>
                           {plantilla.nombre}
@@ -3903,7 +4450,55 @@ export const InteractiveStudioCanvas: React.FC<InteractiveStudioCanvasProps> = (
                 </div>
               ))}
             </div>
-          </div>
+        </GlassModal>
+      )}
+
+      {/* Modal Interactivo de Descomposición Manual N:M en Tabla Intermedia (UML 2.5 / 3FN) */}
+      {decomposerModalData && (
+        <IntermediateTableDecomposerModal
+          sourceClass={decomposerModalData.srcClass}
+          targetClass={decomposerModalData.tgtClass}
+          existingClasses={diagram.classes}
+          onConfirm={handleConfirmDecomposerModal}
+          onClose={() => setDecomposerModalData(null)}
+        />
+      )}
+
+      {/* Modal Interactivo de Extracción de Superclase / Herencia Generalizada (UML 2.5) */}
+      {extractSuperclassClasses && (
+        <ExtractSuperclassModal
+          selectedClasses={extractSuperclassClasses}
+          onConfirm={handleConfirmExtractSuperclass}
+          onClose={() => setExtractSuperclassClasses(null)}
+        />
+      )}
+
+      {/* Toast informativo reactivo del lienzo */}
+      {canvasToast && (
+        <div
+          style={{
+            position: 'absolute',
+            bottom: '26px',
+            left: '50%',
+            transform: 'translateX(-50%)',
+            background: 'rgba(15, 23, 42, 0.95)',
+            border: '1px solid #10b981',
+            borderRadius: '10px',
+            padding: '9px 18px',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '8px',
+            color: '#ecfdf5',
+            fontSize: '0.80rem',
+            fontWeight: 700,
+            boxShadow: '0 8px 30px rgba(0, 0, 0, 0.5), 0 0 20px rgba(16, 185, 129, 0.3)',
+            zIndex: 100,
+            pointerEvents: 'none',
+            animation: 'fadeIn 0.2s ease-out'
+          }}
+        >
+          <Sparkles size={15} color="#34d399" />
+          <span>{canvasToast}</span>
         </div>
       )}
     </div>

@@ -155,7 +155,7 @@ export const LiquidBackground: React.FC<LiquidBackgroundProps> = ({ children }) 
           />
         </svg>
 
-        {/* 🟦 VIBRANT SQUARE DIAGRAM 1: «Entity» Usuario (Top-Left, overlaps behind card) */}
+        {/* VIBRANT SQUARE DIAGRAM 1: «Entity» Usuario (Top-Left, overlaps behind card) */}
         <div
           className="floating-vibrant-square floating-anim-1 bg-parallax-1"
           style={{
@@ -242,7 +242,7 @@ export const LiquidBackground: React.FC<LiquidBackgroundProps> = ({ children }) 
           </div>
         </div>
 
-        {/* 🟧 VIBRANT SQUARE DIAGRAM 2: «Service» AuthService (Bottom-Right, overlaps behind card) */}
+        {/* VIBRANT SQUARE DIAGRAM 2: «Service» AuthService (Bottom-Right, overlaps behind card) */}
         <div
           className="floating-vibrant-square floating-anim-2 bg-parallax-2"
           style={{
@@ -321,7 +321,7 @@ export const LiquidBackground: React.FC<LiquidBackgroundProps> = ({ children }) 
           </div>
         </div>
 
-        {/* 🟩 VIBRANT SQUARE DIAGRAM 3: «Controller» AuthController (Top-Right) */}
+        {/* VIBRANT SQUARE DIAGRAM 3: «Controller» AuthController (Top-Right) */}
         <div
           className="floating-vibrant-square floating-anim-3 bg-parallax-3"
           style={{
@@ -381,7 +381,7 @@ export const LiquidBackground: React.FC<LiquidBackgroundProps> = ({ children }) 
           </div>
         </div>
 
-        {/* 🟪 VIBRANT SQUARE DIAGRAM 4: «Repository» UserRepository (Bottom-Left) */}
+        {/* VIBRANT SQUARE DIAGRAM 4: «Repository» UserRepository (Bottom-Left) */}
         <div
           className="floating-vibrant-square floating-anim-4 bg-parallax-4"
           style={{

@@ -28,6 +28,10 @@ public class ServicioSalaColaborativa {
 
     /** CU-03 · Flujo principal: el anfitrión crea la sala y obtiene su PIN para compartir. */
     public InfoSesionDto crearSala(String nombreSala, PerfilUsuarioDto anfitrion) {
+        return crearSala(nombreSala, anfitrion, null);
+    }
+
+    public InfoSesionDto crearSala(String nombreSala, PerfilUsuarioDto anfitrion, String pinDeseado) {
         if (anfitrion == null) {
             throw new ExcepcionNegocio("Debe indicar el perfil del anfitrión para crear la sala.");
         }
@@ -35,15 +39,23 @@ public class ServicioSalaColaborativa {
             nombreSala = "Sesión de Ingeniería";
         }
 
-        String pin = generarPinUnico();
-        SalaColaborativa sala = new SalaColaborativa();
-        sala.setPin(pin);
-        sala.setNombreSala(nombreSala.trim());
-        sala.setAnfitrion(anfitrion);
-        sala.setCreadaEn(LocalDateTime.now());
-        sala.getParticipantes().add(anfitrion);
+        String pin = (pinDeseado != null && !pinDeseado.trim().isEmpty())
+                ? normalizarPin(pinDeseado)
+                : generarPinUnico();
 
-        salas.put(pin, sala);
+        final String finalNombreSala = nombreSala.trim();
+        SalaColaborativa sala = salas.computeIfAbsent(pin, p -> {
+            SalaColaborativa s = new SalaColaborativa();
+            s.setPin(p);
+            s.setNombreSala(finalNombreSala);
+            s.setAnfitrion(anfitrion);
+            s.setCreadaEn(LocalDateTime.now());
+            return s;
+        });
+
+        if (sala.getParticipantes().stream().noneMatch(u -> u.getId() != null && u.getId().equals(anfitrion.getId()))) {
+            sala.getParticipantes().add(anfitrion);
+        }
 
         return construirSesion(sala, anfitrion, false);
     }

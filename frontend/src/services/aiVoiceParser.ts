@@ -1,4 +1,5 @@
 import { ClaseUml, AtributoUml, RelacionUml } from '../types/uml';
+import { inferirDireccionMaestroTransaccion, inferirTablaIntermedia } from './semanticDomainEngine';
 
 export interface ParseResult {
   success: boolean;
@@ -12,9 +13,13 @@ export interface ParseResult {
     | 'OPEN_CODE_DOCK'
     | 'GENERATE_DOMAIN'
     | 'AUTO_FIX_MODEL'
+    | 'GREETING'
+    | 'HELP'
+    | 'GRATITUDE'
     | 'UNKNOWN';
   reasoning: string;
   createdClass?: ClaseUml;
+  createdClasses?: ClaseUml[];
   targetClassName?: string;
   newAttribute?: AtributoUml;
   newRelation?: RelacionUml;
@@ -54,6 +59,22 @@ function generarAtributosPorDefecto(className: string): AtributoUml[] {
     isPrimaryKey: true,
     isNullable: false
   };
+
+  if (lower.includes('detalle') || lower.includes('linea') || lower.includes('item_orden') || lower.includes('asociativ') || lower.includes('inscrip') || lower.includes('reserva')) {
+    return [
+      { id: `attr-${Date.now()}-1`, name: 'cantidad', type: 'Integer', visibility: '-', isPrimaryKey: false, isNullable: false },
+      { id: `attr-${Date.now()}-2`, name: 'precioUni', type: 'Double', visibility: '-', isPrimaryKey: false, isNullable: false }
+    ];
+  }
+
+  if (lower.includes('vendedor')) {
+    return [
+      idAttr,
+      { id: `attr-${Date.now()}-1`, name: 'nombre', type: 'String', visibility: '-', isPrimaryKey: false, isNullable: false },
+      { id: `attr-${Date.now()}-2`, name: 'email', type: 'String', visibility: '-', isPrimaryKey: false, isNullable: false },
+      { id: `attr-${Date.now()}-3`, name: 'codigo', type: 'String', visibility: '-', isPrimaryKey: false, isNullable: false }
+    ];
+  }
 
   if (lower.includes('factura') || lower.includes('pedido') || lower.includes('venta') || lower.includes('orden')) {
     return [
@@ -100,6 +121,12 @@ function generarMetodosPorDefecto(className: string): ClaseUml['methods'] {
   const lower = className.toLowerCase();
   const idBase = `m-${Date.now()}`;
 
+  if (lower.includes('detalle') || lower.includes('linea')) {
+    return [
+      { id: `${idBase}-1`, name: 'calcularSubtotal', returnType: 'Double', visibility: '+', parameters: '' }
+    ];
+  }
+
   if (lower.includes('factura') || lower.includes('pedido') || lower.includes('venta')) {
     return [
       { id: `${idBase}-1`, name: 'calcularTotal', returnType: 'Double', visibility: '+', parameters: '' },
@@ -130,7 +157,46 @@ export function parseNaturalLanguageCommand(text: string, existingClasses: Clase
   const clean = text.trim();
   const lower = clean.toLowerCase();
 
-  // 0. Auto-reparación / Corrección inteligente
+  // 0. Saludos y conversación amigable
+  if (
+    /^(hola|buenas|buenos d[ií]as|buenas tardes|buenas noches|que tal|saludos|hey|hello|hi|oiga|asistente)(\s+.*)?$/i.test(lower) ||
+    lower === 'hola' || lower === 'hola ia' || lower === 'hola asistente'
+  ) {
+    return {
+      success: true,
+      action: 'GREETING',
+      reasoning: 'Saludo del usuario detectado.',
+      message: '¡Hola! Soy tu copiloto IA de ArchAI. ¿Qué deseas diseñar hoy? Puedes pedirme auditar, crear clases o generar dominios.'
+    };
+  }
+
+  // 0.1 Ayuda y capacidades
+  if (
+    lower.includes('ayuda') || lower.includes('que puedes hacer') || lower.includes('qué puedes hacer') ||
+    lower.includes('comandos') || lower.includes('instrucciones') || lower.includes('como funciona') || lower.includes('cómo funciona')
+  ) {
+    return {
+      success: true,
+      action: 'HELP',
+      reasoning: 'Solicitud de ayuda y guía de comandos.',
+      message: 'Puedes pedirme: "Auditar modelo", "Sistema de ventas", "Crear clase Factura con total Double", "Relacionar Cliente con Pedido" o "Auto-corregir".'
+    };
+  }
+
+  // 0.2 Cortesía y agradecimiento
+  if (
+    lower.includes('gracias') || lower.includes('muchas gracias') || lower.includes('excelente') ||
+    lower.includes('genial') || lower.includes('perfecto') || lower.includes('adios') || lower.includes('adiós') || lower.includes('chao')
+  ) {
+    return {
+      success: true,
+      action: 'GRATITUDE',
+      reasoning: 'Mensaje de cortesía o agradecimiento detectado.',
+      message: '¡Con gusto! Estoy aquí para cuando lo necesites.'
+    };
+  }
+
+  // 0.3 Auto-reparación / Corrección inteligente
   if (
     lower.includes('corregir') || 
     lower.includes('arreglar') || 
@@ -204,10 +270,10 @@ export function parseNaturalLanguageCommand(text: string, existingClasses: Clase
     };
   }
 
-  // 4. Instanciación automática de Dominios de Negocio (Plantillas Completas)
-  const esPeticionDominio = lower.includes('sistema') || lower.includes('dominio') || lower.includes('plantilla') || lower.includes('modulo') || lower.includes('módulo') || lower.includes('modelo de') || lower.includes('crear ecommerce') || lower.includes('crear hospital') || lower.includes('crear clinica') || lower.includes('crear universidad') || lower.includes('crear inventario') || lower.includes('crear biblioteca') || lower.includes('crear hotel');
+  // 4. Instanciación explícita de Plantillas Rápidas (solo si el usuario pide "plantilla" o "ejemplo de")
+  const pidePlantillaExplicita = lower.includes('plantilla') || lower.includes('ejemplo de') || lower.startsWith('plantilla ') || lower.startsWith('template ');
 
-  if (esPeticionDominio || clean.split(/\s+/).length <= 4) {
+  if (pidePlantillaExplicita) {
     if (lower.includes('ecom') || lower.includes('venta') || lower.includes('tienda') || lower.includes('facturacion') || lower.includes('facturación') || lower.includes('carrito') || lower.includes('comercio')) {
       return {
         success: true,
@@ -273,8 +339,19 @@ export function parseNaturalLanguageCommand(text: string, existingClasses: Clase
     }
   }
 
-  // 5. Generación de diagramas descriptivos libres
-  if ((lower.startsWith('generar diagrama') || lower.startsWith('diagrama de') || lower.startsWith('sistema de') || lower.startsWith('crear sistema')) && clean.split(/\s+/).length >= 4) {
+  // Intención explícita de relación o conexión entre tablas/clases
+  const tieneIntencionRelacion = /(conectar|conecta|conecte|conéctame|conexi[oó]n|relacionar|relaciona|relacione|relaci[oó]n|vincular|vincula|v[ií]nculo|asociar|asocia|asociaci[oó]n|unir|une|enlazar|enlaza|heredar|hereda|herencia|componer|compone|composici[oó]n|ley\s+asociativa)/i.test(lower);
+
+  // 5. Generación de diagramas descriptivos libres con IA (para CUALQUIER dominio)
+  const esPedidoGeneracionDiagrama = !tieneIntencionRelacion && (
+    lower.startsWith('generar') || lower.startsWith('crear') || lower.startsWith('crea') ||
+    lower.startsWith('diseña') || lower.startsWith('diseñar') || lower.startsWith('hazme') ||
+    lower.startsWith('haz un') || lower.startsWith('quiero un') || lower.startsWith('necesito un') ||
+    lower.startsWith('diagrama') || lower.startsWith('sistema') || lower.includes('sistema de') ||
+    lower.includes('diagrama de') || lower.includes('modelo de') || lower.includes('arquitectura de')
+  ) && clean.split(/\s+/).length >= 2;
+
+  if (esPedidoGeneracionDiagrama) {
     return {
       success: true,
       action: 'GENERATE_DIAGRAM',
@@ -291,8 +368,7 @@ export function parseNaturalLanguageCommand(text: string, existingClasses: Clase
     'nueva tabla', 'quiero una clase', 'hazme una clase', 'genera clase', 'entidad ', 'clase '
   ];
 
-  const esCreacionClase = palabrasCreacion.some(p => lower.includes(p)) || 
-    (clean.split(/\s+/).length === 1 && /^[A-ZÁÉÍÓÚÑ][a-záéíóúñ0-9_]+$/.test(clean));
+  const esCreacionClase = !tieneIntencionRelacion && (palabrasCreacion.some(p => lower.includes(p)) || (clean.split(/\s+/).length === 1 && /^[A-ZÁÉÍÓÚÑ][a-záéíóúñ0-9_]+$/.test(clean)));
 
   if (esCreacionClase) {
     let className = '';
@@ -309,12 +385,14 @@ export function parseNaturalLanguageCommand(text: string, existingClasses: Clase
 
     // Identificar estereotipo
     let stereotype: ClaseUml['stereotype'] = 'Entity';
-    if (lower.includes('controller') || lower.includes('controlador')) stereotype = 'Controller';
+    if (lower.includes('asociativ') || lower.includes('association') || lower.includes('intermedia') || lower.includes('detalle') || lower.includes('linea') || lower.includes('item_')) stereotype = 'AssociationClass';
+    else if (lower.includes('controller') || lower.includes('controlador')) stereotype = 'Controller';
     else if (lower.includes('service') || lower.includes('servicio')) stereotype = 'Service';
     else if (lower.includes('repository') || lower.includes('repositorio')) stereotype = 'Repository';
     else if (lower.includes('enum')) stereotype = 'Enum';
 
-    let attributes: AtributoUml[] = [
+    const esAsociativa = stereotype === 'AssociationClass' || lower.includes('detalle') || lower.includes('asociativ');
+    let attributes: AtributoUml[] = esAsociativa ? [] : [
       {
         id: 'attr-' + Date.now() + '-id',
         name: 'id',
@@ -437,46 +515,245 @@ export function parseNaturalLanguageCommand(text: string, existingClasses: Clase
     }
   }
 
-  // 8. Relacionar clases
-  if (
-    lower.includes('relaciona') || lower.includes('relacionar') || lower.includes('conecta') ||
-    lower.includes('conectar') || lower.includes('asocia') || lower.includes('asociar') ||
-    lower.includes('vincula') || lower.includes('vincular') || lower.includes('hereda') ||
-    lower.includes('compone') || lower.includes('asociacion')
-  ) {
-    const matchedClasses = existingClasses.filter(c => lower.includes(c.name.toLowerCase()));
-    if (matchedClasses.length >= 2) {
+  // 8. Relacionar clases y aplicar Ley Asociativa UML 2.5
+  if (tieneIntencionRelacion) {
+    const stopWordsNombres = new Set([
+      'muchos', 'mucho', 'uno', 'una', 'tabla', 'tablas', 'clase', 'clases', 'modelo', 'modelos',
+      'entidad', 'entidades', 'con', 'y', 'a', 'de', 'del', 'la', 'el', 'las', 'los', 'un', 'una',
+      'ley', 'asociativa', 'intermedia', 'detalle', 'relacion', 'relación', 'relacionar', 'conectar',
+      'vincular', 'asociar', 'unir', 'esta', 'este', 'tal', 'estas', 'estos', 'tales', 'hacia', 'e'
+    ]);
+
+    // 8.1 Extraer si el usuario especificó explícitamente un nombre para la clase asociativa / tabla intermedia
+    let explicitAssocName = '';
+    const assocMatch = lower.match(/(?:con|usando|mediante|aplicando|tener)?\s*(?:la\s+)?(?:clase\s+asociativa|tabla\s+asociativa|entidad\s+asociativa|clase\s+intermedia|tabla\s+intermedia|intermedia|detalle\s+asociativo|detalle)\s+(?:de\s+|llamada\s+|llamado\s+)?([a-zA-ZáéíóúñÁÉÍÓÚÑ0-9_]+)/i);
+    if (assocMatch && assocMatch[1] && !stopWordsNombres.has(assocMatch[1].toLowerCase())) {
+      explicitAssocName = capitalize(assocMatch[1]);
+    }
+
+    // 8.2 Tipo de relación / Cardinalidad
+    const esNM = /(muchos\s+a\s+muchos|n\s*:\s*m|n\s+a\s+m|n\s+a\s+n|m\s+a\s+n|varios\s+a\s+varios|ley\s+asociativa|clase\s+asociativa|tabla\s+asociativa|tabla\s+intermedia|clase\s+intermedia)/i.test(lower) || !!explicitAssocName;
+    const es1a1 = /(uno\s+a\s+uno|1\s*:\s*1|1\s+a\s+1|una\s+a\s+una)/i.test(lower);
+    const esHerencia = /(hereda|herencia|subclase|extiende|generalizaci[oó]n)/i.test(lower);
+    const esComposicion = /(compone|composici[oó]n|agregaci[oó]n)/i.test(lower);
+
+    // 8.3 Identificar entidades maestras participantes
+    // a) Búsqueda en clases ya presentes en el lienzo (excluyendo la clase asociativa si se especificó)
+    let matchedMasters = existingClasses.filter(c =>
+      (!explicitAssocName || c.name.toLowerCase() !== explicitAssocName.toLowerCase()) &&
+      lower.includes(c.name.toLowerCase())
+    );
+
+    // b) Extracción por patrones léxicos verbales
+    let candA = '';
+    let candB = '';
+    const regexPats = [
+      /(?:conectar|relacionar|vincular|asociar|unir|enlazar)\s+(?:la\s+tabla\s+|la\s+clase\s+|el\s+modelo\s+|la\s+entidad\s+)?([a-zA-ZáéíóúñÁÉÍÓÚÑ0-9_]+)\s+(?:con|y|a|hacia|e)\s+(?:la\s+tabla\s+|la\s+clase\s+|el\s+modelo\s+|la\s+entidad\s+)?([a-zA-ZáéíóúñÁÉÍÓÚÑ0-9_]+)/i,
+      /(?:entre|de)\s+(?:la\s+tabla\s+|la\s+clase\s+|el\s+modelo\s+|la\s+entidad\s+)?([a-zA-ZáéíóúñÁÉÍÓÚÑ0-9_]+)\s+(?:y|con|e)\s+(?:la\s+tabla\s+|la\s+clase\s+|el\s+modelo\s+|la\s+entidad\s+)?([a-zA-ZáéíóúñÁÉÍÓÚÑ0-9_]+)/i,
+      /(?:conectar|relacionar|vincular|asociar|unir)\s+([a-zA-ZáéíóúñÁÉÍÓÚÑ0-9_]+)\s+(?:y|con|a)\s+([a-zA-ZáéíóúñÁÉÍÓÚÑ0-9_]+)/i
+    ];
+
+    for (const pat of regexPats) {
+      const m = lower.match(pat);
+      if (m && m[1] && m[2]) {
+        const p1 = m[1].toLowerCase();
+        const p2 = m[2].toLowerCase();
+        if (!stopWordsNombres.has(p1) && !stopWordsNombres.has(p2)) {
+          candA = capitalize(m[1]);
+          candB = capitalize(m[2]);
+          break;
+        }
+      }
+    }
+
+    // c) Referencias deícticas o contextuales ('conectar tal tabla con esta', 'conectar estas tablas', 'conectar de muchos a muchos')
+    if (matchedMasters.length < 2 && !candA && !candB && existingClasses.length >= 2) {
+      matchedMasters = [
+        existingClasses[existingClasses.length - 2],
+        existingClasses[existingClasses.length - 1]
+      ];
+    }
+
+    // d) Consolidar entidades maestras (sintetizar si no existen aún)
+    const nuevasClasesSintetizadas: ClaseUml[] = [];
+    let master1: ClaseUml | null = matchedMasters[0] || null;
+    let master2: ClaseUml | null = matchedMasters[1] || null;
+
+    if (!master1 && candA) {
+      master1 = existingClasses.find(c => c.name.toLowerCase() === candA.toLowerCase()) || null;
+      if (!master1) {
+        master1 = {
+          id: 'class-' + Date.now() + '-1',
+          name: candA,
+          stereotype: 'Entity',
+          attributes: generarAtributosPorDefecto(candA),
+          methods: generarMetodosPorDefecto(candA),
+          position: { x: 120, y: 150 }
+        };
+        nuevasClasesSintetizadas.push(master1);
+      }
+    }
+
+    if (!master2 && candB) {
+      master2 = existingClasses.find(c => c.name.toLowerCase() === candB.toLowerCase()) || null;
+      if (!master2) {
+        master2 = {
+          id: 'class-' + Date.now() + '-2',
+          name: candB,
+          stereotype: 'Entity',
+          attributes: generarAtributosPorDefecto(candB),
+          methods: generarMetodosPorDefecto(candB),
+          position: { x: 520, y: 150 }
+        };
+        nuevasClasesSintetizadas.push(master2);
+      }
+    }
+
+    // Si solo hay 1 master identificado y en el lienzo hay al menos otra clase, usarla como destino
+    if (master1 && !master2 && existingClasses.length > 0) {
+      const m1Id = master1.id;
+      master2 = existingClasses.find(c => c.id !== m1Id) || null;
+    } else if (master2 && !master1 && existingClasses.length > 0) {
+      const m2Id = master2.id;
+      master1 = existingClasses.find(c => c.id !== m2Id) || null;
+    }
+
+    if (master1 && master2 && master1.id !== master2.id) {
+      const m1 = master1;
+      const m2 = master2;
+      // 8.4 LEY ASOCIATIVA UML 2.5: Muchos a Muchos (N:M)
+      if (esNM) {
+        let assocClass: ClaseUml | null = null;
+        let esNuevaAssoc = false;
+
+        if (explicitAssocName) {
+          const yaExiste = existingClasses.find(c => c.name.toLowerCase() === explicitAssocName.toLowerCase());
+          if (yaExiste) {
+            assocClass = {
+              ...yaExiste,
+              stereotype: 'AssociationClass',
+              attributes: (yaExiste.attributes || []).filter(a => a.name.toLowerCase() !== 'id').map(a => ({ ...a, isPrimaryKey: false }))
+            };
+          } else {
+            const suggestion = inferirTablaIntermedia(master1, master2, existingClasses);
+            const sPos = master1.position || { x: 150, y: 150 };
+            const tPos = master2.position || { x: 550, y: 150 };
+            const midX = Math.round((sPos.x + tPos.x) / 2);
+            const midY = Math.max(sPos.y, tPos.y) + 180;
+
+            assocClass = {
+              id: 'cls-assoc-' + Date.now(),
+              name: explicitAssocName,
+              stereotype: 'AssociationClass',
+              attributes: suggestion.atributos.filter(a => a.name.toLowerCase() !== 'id').map(a => ({ ...a, isPrimaryKey: false })),
+              methods: suggestion.metodos || [],
+              position: { x: midX, y: midY }
+            };
+            esNuevaAssoc = true;
+          }
+        } else {
+          // Búsqueda de clase asociativa ya existente para estas entidades
+          const yaExisteAssoc = existingClasses.find(c =>
+            c.id !== m1.id && c.id !== m2.id &&
+            (c.stereotype === 'AssociationClass' || c.name.toLowerCase().includes('detalle') || c.name.toLowerCase().includes('asociat') ||
+             c.name.toLowerCase() === (m1.name.toLowerCase() + m2.name.toLowerCase()) ||
+             c.name.toLowerCase() === (m2.name.toLowerCase() + m1.name.toLowerCase()))
+          );
+
+          if (yaExisteAssoc) {
+            assocClass = {
+              ...yaExisteAssoc,
+              stereotype: 'AssociationClass',
+              attributes: (yaExisteAssoc.attributes || []).filter(a => a.name.toLowerCase() !== 'id').map(a => ({ ...a, isPrimaryKey: false }))
+            };
+          } else {
+            const suggestion = inferirTablaIntermedia(master1, master2, existingClasses);
+            assocClass = {
+              id: 'cls-assoc-' + Date.now(),
+              name: suggestion.nombreClase,
+              stereotype: 'AssociationClass',
+              attributes: suggestion.atributos.filter(a => a.name.toLowerCase() !== 'id').map(a => ({ ...a, isPrimaryKey: false })),
+              methods: suggestion.metodos || [],
+              position: suggestion.posicion
+            };
+            esNuevaAssoc = true;
+          }
+        }
+
+        // Relación principal N:M entre las 2 entidades maestras con conector T hacia la clase asociativa
+        const relNM: RelacionUml = {
+          id: 'rel-' + Date.now() + '-nm',
+          sourceClassId: master1.id,
+          targetClassId: master2.id,
+          type: 'ASSOCIATION_N_M',
+          sourceMultiplicity: '*',
+          targetMultiplicity: '1..*',
+          label: assocClass.name,
+          associationClassId: assocClass.id
+        };
+
+        return {
+          success: true,
+          action: 'CREATE_RELATION',
+          reasoning: "En cumplimiento estricto de la Ley Asociativa UML 2.5, la relación N:M entre '" + master1.name + "' y '" + master2.name + "' se conecta a la clase asociativa '" + assocClass.name + "' mediante conector punteado perpendicular en T (sin aristas binarias directas redundantes).",
+          newRelation: relNM,
+          createdClass: esNuevaAssoc ? assocClass : undefined,
+          createdClasses: nuevasClasesSintetizadas.length > 0 ? nuevasClasesSintetizadas : undefined,
+          message: "Ley asociativa UML 2.5 aplicada: '" + master1.name + "' y '" + master2.name + "' vinculadas en N:M con la clase asociativa '" + assocClass.name + "'."
+        };
+      }
+
+      // 8.5 Otras relaciones (1:N, 1:1, Herencia, Composición)
       let relType: RelacionUml['type'] = 'ASSOCIATION_1_N';
       let srcMult = '1';
       let tgtMult = '0..*';
       let relLabel = 'gestiona';
 
-      if (lower.includes('muchos a muchos') || lower.includes('n a m') || lower.includes('n:m') || lower.includes('n a n')) {
-        relType = 'ASSOCIATION_N_M';
-        srcMult = '0..*';
-        tgtMult = '0..*';
-        relLabel = 'asocia';
-      } else if (lower.includes('uno a uno') || lower.includes('1 a 1') || lower.includes('1:1')) {
+      if (es1a1) {
         relType = 'ASSOCIATION_1_1';
         srcMult = '1';
         tgtMult = '1';
         relLabel = 'contiene';
-      } else if (lower.includes('hereda') || lower.includes('herencia') || lower.includes('subclase')) {
+      } else if (esHerencia) {
         relType = 'INHERITANCE';
         srcMult = '1';
         tgtMult = '1';
         relLabel = 'extiende';
-      } else if (lower.includes('compone') || lower.includes('composicion') || lower.includes('composición')) {
+      } else if (esComposicion) {
         relType = 'COMPOSITION';
         srcMult = '1';
         tgtMult = '0..*';
         relLabel = 'compone';
       }
 
+      let srcClassObj = master1;
+      let tgtClassObj = master2;
+
+      // Si es 1:N, garantizar dirección Maestro (1) -> Transacción (*)
+      if (relType === 'ASSOCIATION_1_N') {
+        const dir = inferirDireccionMaestroTransaccion(srcClassObj.name, tgtClassObj.name);
+        if (!dir.origenEsMaestro) {
+          srcClassObj = master2;
+          tgtClassObj = master1;
+        }
+      }
+
+      // Si es Herencia, la subclase (hija) apunta a la superclase (padre) en UML (──▷)
+      if (relType === 'INHERITANCE') {
+        if (lower.includes('hereda de') || lower.includes('extiende de') || lower.includes('subclase de')) {
+          const pos0 = lower.indexOf(master1.name.toLowerCase());
+          const pos1 = lower.indexOf(master2.name.toLowerCase());
+          if (pos1 !== -1 && pos0 !== -1 && pos1 < pos0) {
+            srcClassObj = master2;
+            tgtClassObj = master1;
+          }
+        }
+      }
+
       const rel: RelacionUml = {
         id: 'rel-' + Date.now(),
-        sourceClassId: matchedClasses[0].id,
-        targetClassId: matchedClasses[1].id,
+        sourceClassId: srcClassObj.id,
+        targetClassId: tgtClassObj.id,
         type: relType,
         sourceMultiplicity: srcMult,
         targetMultiplicity: tgtMult,
@@ -486,18 +763,23 @@ export function parseNaturalLanguageCommand(text: string, existingClasses: Clase
       return {
         success: true,
         action: 'CREATE_RELATION',
-        reasoning: `Se generó la relación ${relType} entre '${matchedClasses[0].name}' y '${matchedClasses[1].name}'.`,
+        reasoning: "Se generó la relación " + relType + " entre '" + srcClassObj.name + "' y '" + tgtClassObj.name + "'.",
         newRelation: rel,
-        message: `Relación creada entre ${matchedClasses[0].name} (${srcMult}) y ${matchedClasses[1].name} (${tgtMult}).`
+        createdClasses: nuevasClasesSintetizadas.length > 0 ? nuevasClasesSintetizadas : undefined,
+        message: "Relación creada entre " + srcClassObj.name + " (" + srcMult + ") y " + tgtClassObj.name + " (" + tgtMult + ")."
       };
     }
   }
 
   // 9. Fallback inteligente: si el texto parece ser el nombre de una entidad no detectada previamente
   const words = clean.split(/\s+/);
-  if (words.length <= 3 && !lower.includes('no') && !lower.includes('error')) {
+  const stopWordsConversacion = new Set([
+    'hola', 'buenas', 'que', 'tal', 'ayuda', 'si', 'no', 'ok', 'bien', 'gracias', 'adios', 'chao',
+    'hey', 'hello', 'hi', 'error', 'prueba', 'test', 'nada', 'cancelar', 'porfa', 'favor'
+  ]);
+  if (words.length <= 3 && !words.some(w => stopWordsConversacion.has(w.toLowerCase()))) {
     const candidateName = capitalize(words[words.length - 1].replace(/[^a-zA-ZáéíóúÁÉÍÓÚñÑ0-9]/g, ''));
-    if (candidateName.length >= 3) {
+    if (candidateName.length >= 3 && !stopWordsConversacion.has(candidateName.toLowerCase())) {
       const baseOffset = existingClasses.length;
       const posX = 120 + (baseOffset % 3) * 340;
       const posY = 140 + Math.floor(baseOffset / 3) * 280;

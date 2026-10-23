@@ -36,7 +36,7 @@ const ROLE_OPTIONS: DropdownOption<RolUsuario>[] = [
   { value: 'Líder Técnico', label: 'Líder Técnico', icon: <Briefcase size={14} color="var(--text-secondary)" /> }
 ];
 
-// 🎨 Paleta Midnight Navy & Warm Sand (vault 01 - Arquitectura): avatares sobrios,
+// Paleta Midnight Navy & Warm Sand (vault 01 - Arquitectura): avatares sobrios,
 // sin tonos "arcoíris" estridentes.
 const AVATAR_COLORS = [
   '#e8c39e', '#2f2c79', '#8892b0', '#f5e1ce', '#5c688c', '#3a3670'
@@ -102,6 +102,10 @@ export const LoginModal: React.FC<LoginModalProps> = ({ onLoginSuccess }) => {
     setErrorLocal('');
     setLoading(true);
 
+    const vistaDestinoEfectiva: 'proyectos' | 'estudio' = tab === 'join' ? 'estudio' : targetView;
+    const pinLimpio = (roomPin.trim() || 'ARC-GRUPO04').toUpperCase();
+    const pinNormalizado = pinLimpio.startsWith('ARC-') ? pinLimpio : `ARC-${pinLimpio}`;
+
     try {
       // CU-01 · Autenticación contra el backend (email/username/contraseña)
       const data = await iniciarSesion(email.trim(), password.trim());
@@ -113,11 +117,20 @@ export const LoginModal: React.FC<LoginModalProps> = ({ onLoginSuccess }) => {
         try {
           if (tab === 'host') {
             sesion = await crearSalaColaborativa(roomName.trim() || 'Sesión de Ingeniería', data.user);
-          } else if (tab === 'join' && roomPin.trim()) {
-            sesion = await unirseSalaColaborativa(roomPin.trim(), data.user);
+          } else if (tab === 'join') {
+            try {
+              sesion = await unirseSalaColaborativa(pinNormalizado, data.user);
+            } catch {
+              // Si la sala aún no está en la memoria del backend, la creamos con ese mismo PIN para colaboración inmediata
+              sesion = await crearSalaColaborativa(roomName.trim() || `Sala ${pinNormalizado}`, data.user, pinNormalizado);
+            }
           }
         } catch {
-          // se conserva la sesión devuelta por el login
+          // Si falla la llamada colaborativa, asegurar que el roomId coincida con el PIN ingresado
+          sesion = {
+            ...sesion,
+            roomId: tab === 'join' ? pinNormalizado : (sesion.roomId || 'ARC-GRUPO04')
+          };
         }
 
         localStorage.setItem('archai_token', data.token || '');
@@ -125,7 +138,7 @@ export const LoginModal: React.FC<LoginModalProps> = ({ onLoginSuccess }) => {
         if (sesion.roomId && sesion.roomId !== 'LOCAL-MODE') {
           localStorage.setItem('archai_ultima_sala', sesion.roomId);
         }
-        onLoginSuccess(sesion, targetView);
+        onLoginSuccess(sesion, vistaDestinoEfectiva);
         return;
       }
     } catch (err: any) {
@@ -142,7 +155,7 @@ export const LoginModal: React.FC<LoginModalProps> = ({ onLoginSuccess }) => {
       generatedRoomId = 'ARC-' + Math.floor(100000 + Math.random() * 900000);
       isHost = true;
     } else if (tab === 'join') {
-      generatedRoomId = roomPin.trim() || 'ARC-GRUPO04';
+      generatedRoomId = pinNormalizado;
       isHost = false;
     } else {
       generatedRoomId = 'LOCAL-MODE';
@@ -175,7 +188,7 @@ export const LoginModal: React.FC<LoginModalProps> = ({ onLoginSuccess }) => {
     if (generatedRoomId && generatedRoomId !== 'LOCAL-MODE') {
       localStorage.setItem('archai_ultima_sala', generatedRoomId);
     }
-    onLoginSuccess(session, targetView);
+    onLoginSuccess(session, vistaDestinoEfectiva);
   };
 
   return (
@@ -190,7 +203,7 @@ export const LoginModal: React.FC<LoginModalProps> = ({ onLoginSuccess }) => {
     }}>
       <LoginBackground />
 
-      {/* 🛸 Superficie de Vidrio Translúcido (Glassmorphism HUD) — Paleta Midnight Navy & Warm Sand */}
+      {/* Superficie de Vidrio Translúcido (Glassmorphism HUD) - Paleta Midnight Navy & Warm Sand */}
       <div className="glass-login-modal" style={{
         maxWidth: '440px',
         width: '100%',
@@ -243,7 +256,7 @@ export const LoginModal: React.FC<LoginModalProps> = ({ onLoginSuccess }) => {
           </p>
         </div>
 
-        {/* 🔔 Banner de Sala Activa Detectada para Conectar en 1 Clic */}
+        {/* Banner de Sala Activa Detectada para Conectar en 1 Clic */}
         {salaDetectada && (
           <div style={{
             background: 'rgba(232, 195, 158, 0.08)',
@@ -634,6 +647,10 @@ export const LoginModal: React.FC<LoginModalProps> = ({ onLoginSuccess }) => {
                 <>
                   <UserCheck size={16} /> Crear Cuenta y Acceder <ArrowRight size={15} />
                 </>
+              ) : tab === 'join' ? (
+                <>
+                  <Users size={16} /> Unirse a la Sala y Abrir Estudio <ArrowRight size={15} />
+                </>
               ) : (
                 <>
                   <FolderKanban size={16} /> Iniciar Sesión y Gestionar Proyectos <ArrowRight size={15} />
@@ -641,7 +658,7 @@ export const LoginModal: React.FC<LoginModalProps> = ({ onLoginSuccess }) => {
               )}
             </button>
 
-            {modo === 'login' && (
+            {modo === 'login' && tab !== 'join' && (
               <button
                 type="button"
                 onClick={() => handleSubmit(undefined, 'estudio')}

@@ -937,6 +937,7 @@ interface ToolboxUml25Props {
   onCancelRelationMode?: () => void;
   onMouseEnterToolbox?: () => void;
   onMouseLeaveToolbox?: () => void;
+  onDragEndToolbox?: () => void;
 }
 
 export const ToolboxUml25: React.FC<ToolboxUml25Props> = ({
@@ -947,7 +948,8 @@ export const ToolboxUml25: React.FC<ToolboxUml25Props> = ({
   activeRelationType = null,
   onCancelRelationMode,
   onMouseEnterToolbox,
-  onMouseLeaveToolbox
+  onMouseLeaveToolbox,
+  onDragEndToolbox
 }) => {
   const [isExpanded, setIsExpanded] = useState<boolean>(true);
   const [searchTerm, setSearchTerm] = useState<string>('');
@@ -989,8 +991,19 @@ export const ToolboxUml25: React.FC<ToolboxUml25Props> = ({
 
   // Manejador Drag Start para transferir la especificación al lienzo
   const handleDragStart = (e: React.DragEvent, type: 'classifier' | 'pattern', item: any) => {
-    e.dataTransfer.setData('application/archai-toolbox', JSON.stringify({ type, item }));
-    e.dataTransfer.effectAllowed = 'copy';
+    const payload = JSON.stringify({ type, item });
+    try {
+      e.dataTransfer.setData('application/archai-toolbox', payload);
+      e.dataTransfer.setData('text/plain', payload);
+      e.dataTransfer.effectAllowed = 'copy';
+    } catch {
+      // Fallback si algún navegador restringe custom dataTransfer mime
+      e.dataTransfer.setData('text/plain', payload);
+    }
+  };
+
+  const handleDragEnd = () => {
+    onDragEndToolbox?.();
   };
 
   // Render para estado minimizado
@@ -1014,7 +1027,7 @@ export const ToolboxUml25: React.FC<ToolboxUml25Props> = ({
           display: 'flex',
           alignItems: 'center',
           gap: '8px',
-          cursor: 'none',
+          cursor: 'pointer',
           boxShadow: 'var(--glass-topbar-shadow)',
           color: 'var(--text-primary)',
           transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)'
@@ -1074,7 +1087,7 @@ export const ToolboxUml25: React.FC<ToolboxUml25Props> = ({
         boxShadow: 'var(--glass-topbar-shadow)',
         overflow: 'hidden',
         transition: 'all 0.25s cubic-bezier(0.4, 0, 0.2, 1)',
-        cursor: 'none'
+        cursor: 'default'
       }}
     >
       {/* ── Cabecera de la Toolbox ── */}
@@ -1136,7 +1149,7 @@ export const ToolboxUml25: React.FC<ToolboxUml25Props> = ({
             background: 'transparent',
             border: 'none',
             color: 'var(--text-secondary)',
-            cursor: 'none',
+            cursor: 'pointer',
             padding: '4px',
             borderRadius: '6px',
             display: 'flex',
@@ -1183,7 +1196,7 @@ export const ToolboxUml25: React.FC<ToolboxUml25Props> = ({
                 background: 'transparent',
                 border: 'none',
                 color: 'var(--text-muted)',
-                cursor: 'none',
+                cursor: 'pointer',
                 padding: '2px',
                 display: 'flex',
                 alignItems: 'center'
@@ -1221,7 +1234,7 @@ export const ToolboxUml25: React.FC<ToolboxUml25Props> = ({
               border: 'none',
               background: activeTab === tab.key ? '#e8c39e' : 'transparent',
               color: activeTab === tab.key ? '#000020' : 'var(--text-primary)',
-              cursor: 'none',
+              cursor: 'pointer',
               transition: 'all 0.15s ease'
             }}
           >
@@ -1242,7 +1255,7 @@ export const ToolboxUml25: React.FC<ToolboxUml25Props> = ({
         color: 'var(--text-secondary)',
         flexShrink: 0
       }}>
-        <span style={{ fontSize: '0.82rem' }}>💡</span>
+        <Zap size={13} color="var(--text-secondary)" style={{ flexShrink: 0 }} />
         <span>Haz clic en <strong>+</strong> o arrastra al lienzo para modelar</span>
       </div>
 
@@ -1271,7 +1284,7 @@ export const ToolboxUml25: React.FC<ToolboxUml25Props> = ({
                 background: 'transparent',
                 border: 'none',
                 color: 'var(--text-muted)',
-                cursor: 'none',
+                cursor: 'pointer',
                 padding: '2px'
               }}
               title="Cancelar conexión"
@@ -1294,7 +1307,7 @@ export const ToolboxUml25: React.FC<ToolboxUml25Props> = ({
           display: 'flex',
           flexDirection: 'column',
           gap: '12px',
-          cursor: 'none'
+          cursor: 'default'
         }}
       >
         {/* SECCIÓN: CLASIFICADORES ESTRUCTURALES */}
@@ -1323,6 +1336,7 @@ export const ToolboxUml25: React.FC<ToolboxUml25Props> = ({
                   key={c.id}
                   draggable
                   onDragStart={e => handleDragStart(e, 'classifier', c)}
+                  onDragEnd={handleDragEnd}
                   onClick={() => onInsertClassifier(c)}
                   style={{
                     display: 'flex',
@@ -1332,7 +1346,7 @@ export const ToolboxUml25: React.FC<ToolboxUml25Props> = ({
                     borderRadius: '8px',
                     background: 'var(--glass-surface)',
                     border: '1px solid var(--glass-border-color)',
-                    cursor: 'none',
+                    cursor: 'grab',
                     transition: 'all 0.15s ease'
                   }}
                   onMouseEnter={e => {
@@ -1491,7 +1505,7 @@ export const ToolboxUml25: React.FC<ToolboxUml25Props> = ({
                       borderRadius: '8px',
                       background: isActive ? 'rgba(232, 195, 158, 0.20)' : 'var(--glass-surface)',
                       border: isActive ? '1px solid #e8c39e' : '1px solid var(--glass-border-color)',
-                      cursor: 'none',
+                      cursor: 'pointer',
                       textAlign: 'left',
                       transition: 'all 0.15s ease'
                     }}
@@ -1576,13 +1590,14 @@ export const ToolboxUml25: React.FC<ToolboxUml25Props> = ({
                   key={p.id}
                   draggable
                   onDragStart={e => handleDragStart(e, 'pattern', p)}
+                  onDragEnd={handleDragEnd}
                   onClick={() => onInsertPattern(p)}
                   style={{
                     padding: '8px 10px',
                     borderRadius: '10px',
                     background: 'var(--glass-surface)',
                     border: '1px solid var(--glass-border-color)',
-                    cursor: 'none',
+                    cursor: 'grab',
                     transition: 'all 0.15s ease'
                   }}
                   onMouseEnter={e => {
