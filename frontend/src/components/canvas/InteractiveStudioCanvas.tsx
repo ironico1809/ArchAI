@@ -33,7 +33,7 @@ import { ModeloDiagrama, ClaseUml, AtributoUml, MetodoUml, RelacionUml, Visibili
 import { InformacionSesion } from '../../types/auth';
 import { PLANTILLAS_DISPONIBLES, instanciarPlantilla } from '../../services/plantillasDominio';
 import { PermisosUsuario } from '../../types/rbac';
-import { ToolboxUml25, DefClasificadorUml, DefPatronUml } from '../lienzo/ToolboxUml25';
+import { ToolboxUml25, DefClasificadorUml, DefPatronUml } from './ToolboxUml25';
 import { inferirTablaIntermedia, inferirDireccionMaestroTransaccion, esClaseAsociativaUniversal, sanitizarDiagramaUML25 } from '../../services/semanticDomainEngine';
 import { IntermediateTableDecomposerModal } from './IntermediateTableDecomposerModal';
 import { ExtractSuperclassModal } from './ExtractSuperclassModal';

@@ -1,6 +1,6 @@
 import React from 'react';
 import { InformacionSesion } from '../../types/auth';
-import { ModalInicioSesion } from '../../components/autenticacion/ModalInicioSesion';
+import { LoginModal as ModalInicioSesion } from '../../components/auth/LoginModal';
 
 interface PaginaInicioSesionProps {
   alIniciarSesion: (sesion: InformacionSesion, targetView?: 'proyectos' | 'estudio') => void;
